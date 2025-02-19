@@ -1,0 +1,21 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# macos
+.DS_Store
+*.DS_Store
+**/.DS_Store
+
+# Virtual environments
+.venv
+
+# temporary ignores
+test-sync
+tests
+README.md
+esync.toml
