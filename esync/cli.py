@@ -16,6 +16,8 @@ from .config import (
     SyncConfig,
     SSHConfig
 )
+# --------------------------------------------------------------------------------------------------
+
 
 app = typer.Typer(
     name="esync",
@@ -23,8 +25,27 @@ app = typer.Typer(
     add_completion=False,
 )
 
+verbose_help_init = """
+esync - File synchronization tool
+
+Basic Usage:
+  esync init                 # Initialize a new configuration
+  esync init -c esync.toml   # Create a new configuration file
+"""
+
+verbose_help_sync = """
+esync - File synchronization tool
+
+Basic Usage:
+  esync sync                 # Initialize a new configuration
+"""
+
+
+# --------------------------------------------------------------------------------------------------
+
 console = Console()
 
+# --------------------------------------------------------------------------------------------------
 class WatcherType(str, Enum):
     WATCHDOG = "watchdog"
     WATCHMAN = "watchman"
@@ -38,7 +59,10 @@ def create_watcher(
     if watcher_type == WatcherType.WATCHDOG:
         return WatchdogWatcher(source_path, sync_manager)
     return WatchmanWatcher(source_path, sync_manager)
+# --------------------------------------------------------------------------------------------------
 
+
+# --------------------------------------------------------------------------------------------------
 def display_config(config: ESyncConfig) -> None:
     """Display the current configuration."""
     table = Table(title="Current Configuration")
@@ -77,9 +101,21 @@ def display_config(config: ESyncConfig) -> None:
         table.add_row("Rsync", key, str(value))
 
     console.print(table)
+# --------------------------------------------------------------------------------------------------
 
+
+# --------------------------------------------------------------------------------------------------
+@app.callback()
+def main():
+    """File synchronization tool with watchdog/watchman support."""
+    pass
+# --------------------------------------------------------------------------------------------------
+
+
+# --------------------------------------------------------------------------------------------------
 @app.command()
 def sync(
+    ctx: typer.Context,
     config_file: Optional[Path] = typer.Option(
         None,
         "--config",
@@ -103,9 +139,18 @@ def sync(
         "--watcher",
         "-w",
         help="Override watcher type"
-    )
+    ),
+    verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output"),
+    help_override: bool = typer.Option(False, "--help", is_eager=True, help="Show help message"),
 ):
     """Start the file synchronization service."""
+    if help_override:
+        console.print(ctx.get_help(), style="bold")
+        if verbose:
+            console.print(verbose_help_sync, style="italic")
+            # typer.echo(verbose_help_init)
+        raise typer.Exit()
+
     try:
         # Find and load config file
         config_path = config_file or find_config_file()
@@ -183,17 +228,28 @@ def sync(
     except Exception as e:
         console.print(f"[red]Error: {str(e)}[/]")
         raise typer.Exit(1)
+# --------------------------------------------------------------------------------------------------
 
+
+# --------------------------------------------------------------------------------------------------
 @app.command()
 def init(
+    ctx: typer.Context,
     config_file: Path = typer.Option(
-        Path("esync.toml"),
-        "--config",
-        "-c",
-        help="Path to create config file"
-    )
-):
+        Path("esync.toml"), "--config", "-c", help="Path to create config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output"),
+    help_override: bool = typer.Option(False, "--help", is_eager=True, help="Show help message"),
+    ):
     """Initialize a new configuration file."""
+    if help_override:
+        console.print(ctx.get_help(), style="bold")
+        if verbose:
+            console.print(verbose_help_init, style="italic")
+            # typer.echo(verbose_help_init)
+        raise typer.Exit()
+
+
     if config_file.exists():
         overwrite = typer.confirm(
             f"Config file {config_file} already exists. Overwrite?",
@@ -244,6 +300,10 @@ def init(
         tomli_w.dump(default_config, f)
 
     console.print(f"[green]Created config file: {config_file}[/]")
+# --------------------------------------------------------------------------------------------------
 
+
+
+# --------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
     app()

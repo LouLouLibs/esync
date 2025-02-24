@@ -81,8 +81,10 @@ class SyncManager:
         """Build rsync command for local or remote sync."""
         cmd = [
             "rsync",
-            "-rtv",  # recursive, preserve times, verbose
+            "--recursive", # recurse into directories
+            "--times",     # preserve modification times (-t)
             "--progress",  # show progress
+            "--verbose",   # increase verbosity
             # "--backup",    # make backups of deleted files
             # "--backup-dir=.rsync_backup",  # backup directory
         ]
