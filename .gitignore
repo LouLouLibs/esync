@@ -19,3 +19,4 @@ test-sync
 tests
 README.md
 esync.toml
+sync.log

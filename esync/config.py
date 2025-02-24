@@ -15,6 +15,10 @@ class SyncConfig(BaseModel):
     target: Union[Path, str]
     ssh: Optional[SSHConfig] = None
     ignores: List[str] = Field(default_factory=list)
+    backup_enabled: bool = False
+    backup_dir: str = ".rsync_backup"
+    compress: bool = True
+    human_readable: bool = True
 
     def is_remote(self) -> bool:
         """Check if this is a remote sync configuration."""
@@ -25,6 +29,9 @@ class SyncConfig(BaseModel):
         if isinstance(self.target, str):
             return Path(self.target).expanduser()
         return self.target
+
+
+
 
 class RemoteConfig(BaseModel):
     path: Union[Path, str]

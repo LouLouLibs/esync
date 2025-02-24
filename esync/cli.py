@@ -4,6 +4,7 @@ import typer
 from enum import Enum
 from rich.console import Console
 from rich.table import Table
+from rich.live import Live
 
 from .sync_manager import SyncManager
 from .watchdog_watcher import WatchdogWatcher
@@ -44,7 +45,20 @@ Basic Usage:
 Quick Sync:
   esync sync --quick -l ./local -r ./remote  # Quick sync with default settings
   esync sync -q -l ./local -r user@host:/path  # Quick sync to remote SSH
+
+Logging:
+  esync sync --log sync.log    # Log operations to file
+  esync sync -q -l ./local -r ./remote --log sync.log  # Quick sync with logging
+
+Output Control:
+  esync sync                  # Default: clean minimal output with status panel
+  esync sync --no-quiet       # Show more console output
+  esync sync -v               # Enable verbose mode with detailed output
+  esync sync --log sync.log   # Log operations to file
+  esync sync -v --log sync.log  # Detailed logging to file
 """
+
+
 
 console = Console()
 
@@ -145,7 +159,22 @@ def sync(
         "-q",
         help="Quick sync with default settings"
     ),
-    verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output"),
+    log_file: Optional[Path] = typer.Option(
+        None,
+        "--log",
+        help="Path to log file"
+    ),
+    quiet: bool = typer.Option(
+        True,
+        "--quiet/--no-quiet",
+        help="Reduce console output (default: quiet)"
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Enable verbose output with detailed logging"
+    ),
     help_override: bool = typer.Option(False, "--help", is_eager=True, help="Show help message"),
 ):
     """Start the file synchronization service."""
@@ -164,11 +193,12 @@ def sync(
 
             # Create quick configuration
             config = create_config_for_paths(local, remote, watcher.value if watcher else None)
-            console.print("[bold blue]Using quick sync configuration[/]")
+            if not quiet:
+                console.print("[bold blue]Using quick sync configuration[/]")
 
-            # Display effective configuration
-            console.print("\n[bold]Quick Sync Configuration:[/]")
-            display_config(config)
+                # Display effective configuration
+                console.print("\n[bold]Quick Sync Configuration:[/]")
+                display_config(config)
         else:
             # Find and load config file (original flow)
             config_path = config_file or find_config_file()
@@ -179,7 +209,8 @@ def sync(
                 raise typer.Exit(1)
 
             # Show which config file we're using
-            console.print(f"[bold blue]Loading configuration from:[/] {config_path.resolve()}")
+            if not quiet:
+                console.print(f"[bold blue]Loading configuration from:[/] {config_path.resolve()}")
 
             try:
                 config = load_config(config_path)
@@ -203,8 +234,9 @@ def sync(
                 config.settings.esync.watcher = watcher.value
 
             # Display effective configuration
-            console.print("\n[bold]Effective Configuration:[/]")
-            display_config(config)
+            if not quiet:
+                console.print("\n[bold]Effective Configuration:[/]")
+                display_config(config)
 
         # Get sync data from config
         sync_data = config.model_dump().get('sync', {})
@@ -215,38 +247,69 @@ def sync(
 
         # Create sync configuration
         remote_config = sync_data['remote']
+        rsync_settings = config.settings.rsync
+
         if "ssh" in remote_config:
             sync_config = SyncConfig(
                 target=remote_config["path"],
                 ssh=SSHConfig(**remote_config["ssh"]),
-                ignores=config.settings.rsync.ignore + config.settings.esync.ignore
+                ignores=rsync_settings.ignore + config.settings.esync.ignore,
+                backup_enabled=rsync_settings.backup_enabled,
+                backup_dir=rsync_settings.backup_dir,
+                compress=rsync_settings.compress,
+                human_readable=rsync_settings.human_readable
             )
         else:
             remote_path = Path(remote_config["path"]).expanduser().resolve()
             remote_path.mkdir(parents=True, exist_ok=True)
             sync_config = SyncConfig(
                 target=remote_path,
-                ignores=config.settings.rsync.ignore + config.settings.esync.ignore
+                ignores=rsync_settings.ignore + config.settings.esync.ignore,
+                backup_enabled=rsync_settings.backup_enabled,
+                backup_dir=rsync_settings.backup_dir,
+                compress=rsync_settings.compress,
+                human_readable=rsync_settings.human_readable
             )
 
         # Initialize sync manager and watcher
-        sync_manager = SyncManager(sync_config)
+        log_file_path = str(log_file) if log_file else None
+
+        # Create sync manager and watcher
+        sync_manager = SyncManager(sync_config, log_file_path)
+        # Apply quiet/verbose settings
+        sync_manager._quiet = quiet
+        sync_manager._verbose = verbose
         watcher = create_watcher(
             WatcherType(config.settings.esync.watcher),
             local_path,
             sync_manager
         )
 
-        console.print(f"\nStarting {config.settings.esync.watcher} watcher...")
+        if not quiet:
+            console.print(f"\nStarting {config.settings.esync.watcher} watcher...")
+            if log_file:
+                console.print(f"[bold blue]Logging to:[/] {log_file}")
+
+        # Start with Live display
         try:
             watcher.start()
-            while True:
-                import time
-                time.sleep(1)
+
+            if not quiet:
+                console.print("[bold green]Watcher started successfully. Press Ctrl+C to stop.[/]")
+
+            with Live(sync_manager.status_panel, refresh_per_second=4, console=console) as live:
+                while True:
+                    live.update(sync_manager.status_panel)
+                    import time
+                    time.sleep(0.5)
+
         except KeyboardInterrupt:
-            console.print("\nStopping watcher...")
+            if not quiet:
+                console.print("\nStopping watcher...")
             watcher.stop()
             sync_manager.stop()
+            if not quiet:
+                console.print("[bold green]Watcher stopped successfully.[/]")
 
     except Exception as e:
         console.print(f"[red]Error: {str(e)}[/]")
