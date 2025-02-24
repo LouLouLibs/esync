@@ -26,7 +26,6 @@ class SyncConfig(BaseModel):
             return Path(self.target).expanduser()
         return self.target
 
-
 class RemoteConfig(BaseModel):
     path: Union[Path, str]
     ssh: Optional[SSHConfig] = None
@@ -53,6 +52,87 @@ class Settings(BaseModel):
 class ESyncConfig(BaseModel):
     sync: Dict[str, Any] = Field(default_factory=dict)
     settings: Settings = Field(default_factory=Settings)
+
+def get_default_config() -> Dict[str, Any]:
+    """Get the default configuration."""
+    return {
+        "sync": {
+            "local": {
+                "path": "./local",
+                "interval": 1
+            },
+            "remote": {
+                "path": "./remote"
+            }
+        },
+        "settings": {
+            "esync": {
+                "watcher": "watchdog",
+                "ignore": [
+                    "*.log",
+                    "*.tmp",
+                    ".env"
+                ]
+            },
+            "rsync": {
+                "backup_enabled": True,
+                "backup_dir": ".rsync_backup",
+                "compression": True,
+                "verbose": False,
+                "archive": True,
+                "compress": True,
+                "human_readable": True,
+                "progress": True,
+                "ignore": [
+                    "*.swp",
+                    ".git/",
+                    "node_modules/",
+                    "**/__pycache__/",
+                ]
+            }
+        }
+    }
+
+def create_config_for_paths(local_path: str, remote_path: str, watcher_type: Optional[str] = None) -> ESyncConfig:
+    """Create a configuration with specific paths."""
+    # Start with default config
+    config_dict = get_default_config()
+
+    # Update paths
+    config_dict["sync"]["local"]["path"] = local_path
+
+    # Set watcher if provided
+    if watcher_type:
+        config_dict["settings"]["esync"]["watcher"] = watcher_type
+
+    # Handle SSH configuration if needed
+    if "@" in remote_path and ":" in remote_path:
+        # Extract user, host, and path
+        user_host, path = remote_path.split(":", 1)
+        if "@" in user_host:
+            user, host = user_host.split("@", 1)
+            config_dict["sync"]["remote"] = {
+                "path": path,
+                "ssh": {
+                    "host": host,
+                    "user": user,
+                    "port": 22
+                }
+            }
+        else:
+            # No user specified
+            config_dict["sync"]["remote"] = {
+                "path": path,
+                "ssh": {
+                    "host": user_host,
+                    "port": 22
+                }
+            }
+    else:
+        # Local path
+        config_dict["sync"]["remote"]["path"] = remote_path
+
+    return ESyncConfig(**config_dict)
 
 def load_config(config_path: Path) -> ESyncConfig:
     """Load and validate TOML configuration file."""

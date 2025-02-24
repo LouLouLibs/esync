@@ -14,10 +14,10 @@ from .config import (
     find_config_file,
     ESyncConfig,
     SyncConfig,
-    SSHConfig
+    SSHConfig,
+    get_default_config,
+    create_config_for_paths
 )
-# --------------------------------------------------------------------------------------------------
-
 
 app = typer.Typer(
     name="esync",
@@ -37,15 +37,17 @@ verbose_help_sync = """
 esync - File synchronization tool
 
 Basic Usage:
-  esync sync                 # Initialize a new configuration
+  esync sync                   # Start syncing with configuration file
+  esync sync -c esync.toml     # Use specific configuration file
+  esync sync -l ./local -r ./remote   # Override paths in config
+
+Quick Sync:
+  esync sync --quick -l ./local -r ./remote  # Quick sync with default settings
+  esync sync -q -l ./local -r user@host:/path  # Quick sync to remote SSH
 """
-
-
-# --------------------------------------------------------------------------------------------------
 
 console = Console()
 
-# --------------------------------------------------------------------------------------------------
 class WatcherType(str, Enum):
     WATCHDOG = "watchdog"
     WATCHMAN = "watchman"
@@ -101,10 +103,7 @@ def display_config(config: ESyncConfig) -> None:
         table.add_row("Rsync", key, str(value))
 
     console.print(table)
-# --------------------------------------------------------------------------------------------------
 
-
-# --------------------------------------------------------------------------------------------------
 @app.callback()
 def main():
     """File synchronization tool with watchdog/watchman support."""
@@ -126,19 +125,25 @@ def sync(
         None,
         "--local",
         "-l",
-        help="Override local path"
+        help="Local path to sync from"
     ),
     remote: Optional[str] = typer.Option(
         None,
         "--remote",
         "-r",
-        help="Override remote path"
+        help="Remote path to sync to"
     ),
     watcher: Optional[WatcherType] = typer.Option(
         None,
         "--watcher",
         "-w",
         help="Override watcher type"
+    ),
+    quick: bool = typer.Option(
+        False,
+        "--quick",
+        "-q",
+        help="Quick sync with default settings"
     ),
     verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output"),
     help_override: bool = typer.Option(False, "--help", is_eager=True, help="Show help message"),
@@ -148,43 +153,61 @@ def sync(
         console.print(ctx.get_help(), style="bold")
         if verbose:
             console.print(verbose_help_sync, style="italic")
-            # typer.echo(verbose_help_init)
         raise typer.Exit()
 
     try:
-        # Find and load config file
-        config_path = config_file or find_config_file()
-        if not config_path:
-            console.print("[red]No configuration file found![/]")
-            raise typer.Exit(1)
+        # Handle quick sync option
+        if quick:
+            if not local or not remote:
+                console.print("[red]Both local and remote paths are required with --quick option[/]")
+                raise typer.Exit(1)
 
-        # Show which config file we're using
-        console.print(f"[bold blue]Loading configuration from:[/] {config_path.resolve()}")
+            # Create quick configuration
+            config = create_config_for_paths(local, remote, watcher.value if watcher else None)
+            console.print("[bold blue]Using quick sync configuration[/]")
 
-        try:
-            config = load_config(config_path)
-        except Exception as e:
-            console.print(f"[red]Failed to load config: {e}[/]")
-            raise typer.Exit(1)
+            # Display effective configuration
+            console.print("\n[bold]Quick Sync Configuration:[/]")
+            display_config(config)
+        else:
+            # Find and load config file (original flow)
+            config_path = config_file or find_config_file()
+            if not config_path:
+                console.print("[red]No configuration file found![/]")
+                console.print("\t[green]Try running 'esync init' to create one.")
+                console.print("\tOr use 'esync sync --quick -l LOCAL -r REMOTE' for quick syncing.[/]")
+                raise typer.Exit(1)
 
+            # Show which config file we're using
+            console.print(f"[bold blue]Loading configuration from:[/] {config_path.resolve()}")
+
+            try:
+                config = load_config(config_path)
+            except Exception as e:
+                console.print(f"[red]Failed to load config: {e}[/]")
+                raise typer.Exit(1)
+
+            sync_data = config.model_dump().get('sync', {})
+
+            # Validate required sections
+            if 'local' not in sync_data or 'remote' not in sync_data:
+                console.print("[red]Invalid configuration: 'sync.local' and 'sync.remote' sections required[/]")
+                raise typer.Exit(1)
+
+            # Override config with CLI options
+            if local:
+                sync_data['local']['path'] = local
+            if remote:
+                sync_data['remote']['path'] = remote
+            if watcher:
+                config.settings.esync.watcher = watcher.value
+
+            # Display effective configuration
+            console.print("\n[bold]Effective Configuration:[/]")
+            display_config(config)
+
+        # Get sync data from config
         sync_data = config.model_dump().get('sync', {})
-
-        # Validate required sections
-        if 'local' not in sync_data or 'remote' not in sync_data:
-            console.print("[red]Invalid configuration: 'sync.local' and 'sync.remote' sections required[/]")
-            raise typer.Exit(1)
-
-        # Override config with CLI options
-        if local:
-            sync_data['local']['path'] = local
-        if remote:
-            sync_data['remote']['path'] = remote
-        if watcher:
-            config.settings.esync.watcher = watcher.value
-
-        # Display effective configuration
-        console.print("\n[bold]Effective Configuration:[/]")
-        display_config(config)
 
         # Prepare paths
         local_path = Path(sync_data['local']['path']).expanduser().resolve()
@@ -231,6 +254,7 @@ def sync(
 # --------------------------------------------------------------------------------------------------
 
 
+
 # --------------------------------------------------------------------------------------------------
 @app.command()
 def init(
@@ -246,9 +270,7 @@ def init(
         console.print(ctx.get_help(), style="bold")
         if verbose:
             console.print(verbose_help_init, style="italic")
-            # typer.echo(verbose_help_init)
         raise typer.Exit()
-
 
     if config_file.exists():
         overwrite = typer.confirm(
@@ -256,52 +278,16 @@ def init(
             abort=True
         )
 
-    # Create default config
-    default_config = {
-        "sync": {
-            "local": {
-                "path": "./local",
-                "interval": 1
-            },
-            "remote": {
-                "path": "./remote"
-            }
-        },
-        "settings": {
-            "esync": {
-                "watcher": "watchdog",
-                "ignore": [
-                    "*.log",
-                    "*.tmp",
-                    ".env"
-                ]
-            },
-            "rsync": {
-                "backup_enabled": True,
-                "backup_dir": ".rsync_backup",
-                "compression": True,
-                "verbose": False,
-                "archive": True,
-                "compress": True,
-                "human_readable": True,
-                "progress": True,
-                "ignore": [
-                    "*.swp",
-                    ".git/",
-                    "node_modules/",
-                    "**/__pycache__/",
-                ]
-            }
-        }
-    }
+    # Get default config from the central location
+    default_config = get_default_config()
 
+    # Write config to file
     import tomli_w
     with open(config_file, 'wb') as f:
         tomli_w.dump(default_config, f)
 
     console.print(f"[green]Created config file: {config_file}[/]")
 # --------------------------------------------------------------------------------------------------
-
 
 
 # --------------------------------------------------------------------------------------------------
