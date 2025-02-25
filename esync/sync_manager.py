@@ -6,13 +6,15 @@ import os
 import logging
 import re
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Union
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 from .config import SyncConfig
 
 console = Console()
+# console = Console(stderr=True, log_time=True, log_path=False) # for debugging
+
 
 # Customize logger to use shorter log level names
 class CustomAdapter(logging.LoggerAdapter):
@@ -22,11 +24,11 @@ class CustomAdapter(logging.LoggerAdapter):
 class ShortLevelNameFormatter(logging.Formatter):
     """Custom formatter with shorter level names"""
     short_levels = {
-        'DEBUG': 'debug',
-        'INFO': 'info',
-        'WARNING': 'warn',
-        'ERROR': 'error',
-        'CRITICAL': 'critic'
+        'DEBUG': 'DEBUG',
+        'INFO': 'INFO',
+        'WARNING': 'WARN',
+        'ERROR': 'ERROR',
+        'CRITICAL': 'CRITIC'
     }
 
     def format(self, record):
@@ -62,6 +64,11 @@ class SyncManager:
         self._logger = None
         if log_file:
             self._setup_logging(log_file)
+
+        # Set verbose/quiet mode based on config
+        if hasattr(config, 'verbose'):
+            self._verbose = config.verbose
+            self._quiet = not config.verbose
 
         self._sync_thread.start()
 
@@ -362,6 +369,29 @@ class SyncManager:
         finally:
             self._current_sync = None
 
+    def _parse_remote_string(self, remote_str: str) -> tuple:
+        """
+        Parse a remote string into username, host, and path components.
+        Format: [user@]host:path
+        Returns: (username, host, path)
+        """
+        match = re.match(r'^(?:([^@]+)@)?([^:]+):(.+)$', remote_str)
+        if match:
+            return match.groups()
+        return None, None, remote_str
+
+    def _is_remote_path(self, path_str: str) -> bool:
+        """
+        Determine if a string represents a remote path.
+        A remote path is in the format [user@]host:path.
+        """
+        # Avoid treating Windows paths (C:) as remote
+        if len(path_str) >= 2 and path_str[1] == ':' and path_str[0].isalpha():
+            return False
+        # Simple regex to match remote path format
+        return bool(re.match(r'^(?:[^@]+@)?[^/:]+:.+$', path_str))
+
+
     def _build_rsync_command(self, source_path: Path) -> list[str]:
         """Build rsync command for local or remote sync."""
         cmd = [
@@ -369,7 +399,10 @@ class SyncManager:
             "--recursive",  # recursive
             "--times",      # preserve times
             "--progress",   # progress for parsing
-            "--verbose",    # verbose for parsing
+            # "--verbose",    # verbose for parsing
+            # "--links",      # copy symlinks as symlinks
+            # "--copy-links", # transform symlink into referent file/dir
+            "--copy-unsafe-links", # only "unsafe" symlinks are transformed
         ]
 
         # Add backup if enabled
@@ -383,6 +416,10 @@ class SyncManager:
             cmd.append("--compress")
         if hasattr(self._config, 'human_readable') and self._config.human_readable:
             cmd.append("--human-readable")
+        if hasattr(self._config, 'verbose') and self._config.verbose:
+            cmd.append("--verbose")
+        # Todo this is where we add standard rsync commands
+
 
         # Add ignore patterns
         for pattern in self._config.ignores:
@@ -393,11 +430,17 @@ class SyncManager:
                 clean_pattern = clean_pattern[3:]  # Remove **/ prefix
             cmd.extend(["--exclude", clean_pattern])
 
-        # Ensure we have absolute paths
+        # Ensure we have absolute paths for the source
         source = f"{source_path.absolute()}/"
 
+        # Get target as string
+        target_str = str(self._config.target)
+        # Determine if target is a remote path
+        is_remote = self._is_remote_path(target_str)
+
+
         if self._config.is_remote():
-            # For remote sync
+            # For remote sync via SSH config object
             ssh = self._config.ssh
             if ssh.user:
                 remote = f"{ssh.user}@{ssh.host}:{self._config.target}"
@@ -405,13 +448,29 @@ class SyncManager:
                 remote = f"{ssh.host}:{self._config.target}"
             cmd.append(source)
             cmd.append(remote)
+
+        elif is_remote:
+            # For direct remote specification (host:path)
+            # Use the target string directly without any modification
+            cmd.append(source)
+            cmd.append(target_str)
+
+            # Log for debugging
+            self._log("debug", f"Remote path detected: '{target_str}'")
+
         else:
             # For local sync
-            target = self._config.target
-            if isinstance(target, Path):
-                target = target.absolute()
+            try:
+                target = Path(target_str).expanduser()
                 target.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                self._log("error", f"Error creating target directory: {e}")
+                raise
+
             cmd.append(source)
             cmd.append(str(target) + '/')
+
+        # Log the final command for debugging
+        self._log("debug", f"Final rsync command: {' '.join(cmd)}")
 
         return cmd

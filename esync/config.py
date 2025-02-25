@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel, Field
+import re
 import tomli
 from rich.console import Console
 
@@ -19,6 +20,8 @@ class SyncConfig(BaseModel):
     backup_dir: str = ".rsync_backup"
     compress: bool = True
     human_readable: bool = True
+    verbose: bool = False
+
 
     def is_remote(self) -> bool:
         """Check if this is a remote sync configuration."""
@@ -112,8 +115,15 @@ def create_config_for_paths(local_path: str, remote_path: str, watcher_type: Opt
     if watcher_type:
         config_dict["settings"]["esync"]["watcher"] = watcher_type
 
-    # Handle SSH configuration if needed
-    if "@" in remote_path and ":" in remote_path:
+    # Handle SSH configuration if needed -> use the function ... that is defined above like is remote path
+    # check if config is remote
+    is_remote_ssh = False # check if we have to deal with ssh or not
+    if ":" in remote_path:
+        if not ( len(remote_path) >= 2 and remote_path[1] == ':' and remote_path[0].isalpha() ):
+            is_remote_ssh = True
+
+    # now we split the remote path between ssh case and non ssh case
+    if is_remote_ssh:
         # Extract user, host, and path
         user_host, path = remote_path.split(":", 1)
         if "@" in user_host:
