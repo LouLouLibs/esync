@@ -11,6 +11,9 @@ class SSHConfig(BaseModel):
     host: str
     user: Optional[str] = None
     port: int = 22
+    allow_password_auth: bool = True
+    identity_file: Optional[str] = None
+    interactive_auth: bool = True  # Enable interactive authentication prompts
 
 class SyncConfig(BaseModel):
     target: Union[Path, str]

@@ -190,15 +190,22 @@ def sync(
             if not local or not remote:
                 console.print("[red]Both local and remote paths are required with --quick option[/]")
                 raise typer.Exit(1)
+            
+            local_path = Path(local).expanduser().resolve()
+            local_path.mkdir(parents=True, exist_ok=True)
+            remote_path = Path(remote).expanduser().resolve()
 
             # Create quick configuration
-            config = create_config_for_paths(local, remote, watcher.value if watcher else None)
+            config = create_config_for_paths(local_path, remote_path, watcher.value if watcher else None)
             if not quiet:
                 console.print("[bold blue]Using quick sync configuration[/]")
-
                 # Display effective configuration
                 console.print("\n[bold]Quick Sync Configuration:[/]")
                 display_config(config)
+                
+            
+                
+        # else we branch to configuration where we use the configuration toml file
         else:
             # Find and load config file (original flow)
             config_path = config_file or find_config_file()
@@ -213,7 +220,7 @@ def sync(
                 console.print(f"[bold blue]Loading configuration from:[/] {config_path.resolve()}")
 
             try:
-                config = load_config(config_path)
+                config = load_config(config_path)  # config is the toml parsed
             except Exception as e:
                 console.print(f"[red]Failed to load config: {e}[/]")
                 raise typer.Exit(1)
@@ -221,17 +228,33 @@ def sync(
             sync_data = config.model_dump().get('sync', {})
 
             # Validate required sections
-            if 'local' not in sync_data or 'remote' not in sync_data:
-                console.print("[red]Invalid configuration: 'sync.local' and 'sync.remote' sections required[/]")
+            if ('local' not in sync_data) and (not local):
+                console.print(f"[red]Invalid configuration: specifications for local required ('sync.local' in {config_path} or -l option)[/]")
                 raise typer.Exit(1)
+            if local:  
+                local_path = local  # if local is provided via CLI, use it and override the config
+            else:
+                local_path = sync_data['local']['path']           
+            
+            local_path = Path(local_path).expanduser().resolve()
+            local_path.mkdir(parents=True, exist_ok=True)
+                   
 
-            # Override config with CLI options
-            if local:
-                sync_data['local']['path'] = local
+            if ('remote' not in sync_data) and (not remote):
+                console.print(f"[red]Invalid configuration: specifications for remote required ('sync.remote' in {config_path} or -r option)[/]")
+                raise typer.Exit(1)
             if remote:
-                sync_data['remote']['path'] = remote
+                remote_path = remote
+            else:
+                remote_path = sync_data['remote']['path']
+            remote_path = Path(remote_path).expanduser().resolve()
+                       
             if watcher:
                 config.settings.esync.watcher = watcher.value
+                               
+            # update the config based on potential overrides above
+            config.sync['local']['path'] = str(local_path)
+            config.sync['remote']['path'] = str(remote_path)
 
             # Display effective configuration
             if not quiet:
@@ -241,9 +264,8 @@ def sync(
         # Get sync data from config
         sync_data = config.model_dump().get('sync', {})
 
-        # Prepare paths
-        local_path = Path(sync_data['local']['path']).expanduser().resolve()
-        local_path.mkdir(parents=True, exist_ok=True)
+        # remote_path.mkdir(parents=True, exist_ok=True)
+
 
         # Create sync configuration
         remote_config = sync_data['remote']
@@ -251,7 +273,7 @@ def sync(
 
         if "ssh" in remote_config:
             sync_config = SyncConfig(
-                target=remote_config["path"],
+                target=remote_config['path'],
                 ssh=SSHConfig(**remote_config["ssh"]),
                 ignores=rsync_settings.ignore + config.settings.esync.ignore,
                 backup_enabled=rsync_settings.backup_enabled,
@@ -260,10 +282,8 @@ def sync(
                 human_readable=rsync_settings.human_readable
             )
         else:
-            remote_path = Path(remote_config["path"]).expanduser().resolve()
-            remote_path.mkdir(parents=True, exist_ok=True)
             sync_config = SyncConfig(
-                target=remote_path,
+                target=remote_config.path,
                 ignores=rsync_settings.ignore + config.settings.esync.ignore,
                 backup_enabled=rsync_settings.backup_enabled,
                 backup_dir=rsync_settings.backup_dir,
