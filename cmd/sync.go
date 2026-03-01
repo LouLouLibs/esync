@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -227,6 +228,11 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 // ---------------------------------------------------------------------------
 
 func runDaemon(cfg *config.Config, s *syncer.Syncer) error {
+	// Write PID file so `esync status` can find us
+	pidPath := filepath.Join(os.TempDir(), "esync.pid")
+	os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", os.Getpid())), 0644)
+	defer os.Remove(pidPath)
+
 	var log *logger.Logger
 	if cfg.Settings.Log.File != "" {
 		var err error
