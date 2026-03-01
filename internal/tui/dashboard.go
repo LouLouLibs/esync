@@ -259,7 +259,7 @@ func (m DashboardModel) renderEvent(evt SyncEvent) string {
 		name := padRight(evt.File, 30)
 		detail := ""
 		if evt.Size != "" {
-			detail = dimStyle.Render(fmt.Sprintf("%8s  %s", evt.Size, evt.Duration.Truncate(100*time.Millisecond)))
+			detail = dimStyle.Render(fmt.Sprintf("%18s  %s", evt.Size, evt.Duration.Truncate(100*time.Millisecond)))
 		}
 		return ts + "  " + statusSynced.Render("✓") + " " + name + detail
 	case "error":

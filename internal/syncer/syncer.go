@@ -342,11 +342,6 @@ func (s *Syncer) extractFiles(output string) []FileEntry {
 			continue
 		}
 
-		// Skip --info=progress2 summary lines (e.g. "  1,234  56%  1.23MB/s  0:00:01 (xfr#1, to-chk=2/4)")
-		if strings.Contains(trimmed, "xfr#") || strings.Contains(trimmed, "to-chk=") {
-			continue
-		}
-
 		// Stop at stats section
 		if strings.HasPrefix(trimmed, "Number of") ||
 			strings.HasPrefix(trimmed, "sent ") ||
@@ -359,12 +354,18 @@ func (s *Syncer) extractFiles(output string) []FileEntry {
 			continue
 		}
 
-		// Check if this is a progress line (contains 100%)
+		// Check if this is a per-file 100% progress line (extract size).
+		// Must come before the progress2 guard since both contain xfr#/to-chk=.
 		if m := reProgressSize.FindStringSubmatch(trimmed); len(m) > 1 && pending != "" {
 			cleaned := strings.ReplaceAll(m[1], ",", "")
 			size, _ := strconv.ParseInt(cleaned, 10, 64)
 			files = append(files, FileEntry{Name: pending, Bytes: size})
 			pending = ""
+			continue
+		}
+
+		// Skip --info=progress2 summary lines (partial %, e.g. "1,234  56%  1.23MB/s  0:00:01 (xfr#1, to-chk=2/4)")
+		if strings.Contains(trimmed, "xfr#") || strings.Contains(trimmed, "to-chk=") {
 			continue
 		}
 
