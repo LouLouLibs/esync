@@ -15,6 +15,12 @@ const (
 	viewLogs
 )
 
+// SyncStatusMsg updates the header status without adding an event.
+type SyncStatusMsg string
+
+// ResyncRequestMsg signals that the user pressed 'r' for a full resync.
+type ResyncRequestMsg struct{}
+
 // ---------------------------------------------------------------------------
 // AppModel — root Bubbletea model
 // ---------------------------------------------------------------------------
@@ -27,6 +33,7 @@ type AppModel struct {
 	current    view
 	syncEvents chan SyncEvent
 	logEntries chan LogEntry
+	resyncCh   chan struct{}
 }
 
 // NewApp creates a new AppModel wired to the given local and remote paths.
@@ -37,6 +44,7 @@ func NewApp(local, remote string) *AppModel {
 		current:    viewDashboard,
 		syncEvents: make(chan SyncEvent, 64),
 		logEntries: make(chan LogEntry, 64),
+		resyncCh:   make(chan struct{}, 1),
 	}
 }
 
@@ -50,6 +58,11 @@ func (m *AppModel) SyncEventChan() chan<- SyncEvent {
 // the TUI from external code.
 func (m *AppModel) LogEntryChan() chan<- LogEntry {
 	return m.logEntries
+}
+
+// ResyncChan returns a channel that receives when the user requests a full resync.
+func (m *AppModel) ResyncChan() <-chan struct{} {
+	return m.resyncCh
 }
 
 // ---------------------------------------------------------------------------
@@ -93,6 +106,17 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+
+	case SyncStatusMsg:
+		m.dashboard.status = string(msg)
+		return m, nil
+
+	case ResyncRequestMsg:
+		select {
+		case m.resyncCh <- struct{}{}:
+		default:
+		}
+		return m, nil
 
 	case SyncEventMsg:
 		// Dispatch to dashboard and re-listen.

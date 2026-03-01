@@ -18,13 +18,6 @@ type tickMsg time.Time
 // SyncEventMsg carries a single sync event into the TUI.
 type SyncEventMsg SyncEvent
 
-// SyncStatsMsg carries aggregate sync statistics.
-type SyncStatsMsg struct {
-	TotalSynced int
-	TotalBytes  string
-	TotalErrors int
-}
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -45,11 +38,11 @@ type DashboardModel struct {
 	lastSync      time.Time
 	events        []SyncEvent
 	totalSynced   int
-	totalBytes    string
 	totalErrors   int
 	width, height int
 	filter        string
 	filtering     bool
+	offset        int
 }
 
 // ---------------------------------------------------------------------------
@@ -60,10 +53,9 @@ type DashboardModel struct {
 // remote paths.
 func NewDashboard(local, remote string) DashboardModel {
 	return DashboardModel{
-		local:      local,
-		remote:     remote,
-		status:     "watching",
-		totalBytes: "0B",
+		local:  local,
+		remote: remote,
+		status: "watching",
 	}
 }
 
@@ -96,20 +88,24 @@ func (m DashboardModel) Update(msg tea.Msg) (DashboardModel, tea.Cmd) {
 
 	case SyncEventMsg:
 		evt := SyncEvent(msg)
-		// Prepend; cap at 100.
+
+		// Status-only messages update the header, not the event list
+		if strings.HasPrefix(evt.Status, "status:") {
+			m.status = strings.TrimPrefix(evt.Status, "status:")
+			return m, nil
+		}
+
+		// Prepend event; cap at 500.
 		m.events = append([]SyncEvent{evt}, m.events...)
-		if len(m.events) > 100 {
-			m.events = m.events[:100]
+		if len(m.events) > 500 {
+			m.events = m.events[:500]
 		}
 		if evt.Status == "synced" {
 			m.lastSync = evt.Time
+			m.totalSynced++
+		} else if evt.Status == "error" {
+			m.totalErrors++
 		}
-		return m, nil
-
-	case SyncStatsMsg:
-		m.totalSynced = msg.TotalSynced
-		m.totalBytes = msg.TotalBytes
-		m.totalErrors = msg.TotalErrors
 		return m, nil
 
 	case tea.WindowSizeMsg:
@@ -132,9 +128,22 @@ func (m DashboardModel) updateNormal(msg tea.KeyMsg) (DashboardModel, tea.Cmd) {
 		} else {
 			m.status = "paused"
 		}
+	case "r":
+		return m, func() tea.Msg { return ResyncRequestMsg{} }
+	case "j", "down":
+		filtered := m.filteredEvents()
+		maxOffset := max(0, len(filtered)-m.eventViewHeight())
+		if m.offset < maxOffset {
+			m.offset++
+		}
+	case "k", "up":
+		if m.offset > 0 {
+			m.offset--
+		}
 	case "/":
 		m.filtering = true
 		m.filter = ""
+		m.offset = 0
 	}
 	return m, nil
 }
@@ -159,16 +168,21 @@ func (m DashboardModel) updateFiltering(msg tea.KeyMsg) (DashboardModel, tea.Cmd
 	return m, nil
 }
 
+// eventViewHeight returns the number of event rows that fit in the terminal.
+// Layout: header (3 lines) + "Recent" header (1) + stats section (3) + help (1) = 8 fixed.
+func (m DashboardModel) eventViewHeight() int {
+	return max(1, m.height-8)
+}
+
 // View renders the dashboard.
 func (m DashboardModel) View() string {
 	var b strings.Builder
 
-	// --- Header ---
+	// --- Header (3 lines) ---
 	header := titleStyle.Render(" esync ") + dimStyle.Render(strings.Repeat("─", max(0, m.width-8)))
 	b.WriteString(header + "\n")
 	b.WriteString(fmt.Sprintf("  %s → %s\n", m.local, m.remote))
 
-	// Status line
 	statusIcon, statusText := m.statusDisplay()
 	agoText := ""
 	if !m.lastSync.IsZero() {
@@ -176,31 +190,33 @@ func (m DashboardModel) View() string {
 		agoText = fmt.Sprintf(" (synced %s ago)", ago)
 	}
 	b.WriteString(fmt.Sprintf("  %s %s%s\n", statusIcon, statusText, dimStyle.Render(agoText)))
-	b.WriteString("\n")
 
 	// --- Recent events ---
 	b.WriteString("  " + titleStyle.Render("Recent") + " " + dimStyle.Render(strings.Repeat("─", max(0, m.width-11))) + "\n")
 
 	filtered := m.filteredEvents()
-	visible := min(len(filtered), max(0, m.height-10))
-	for i := 0; i < visible; i++ {
-		evt := filtered[i]
-		b.WriteString("  " + m.renderEvent(evt) + "\n")
+	vh := m.eventViewHeight()
+	start := m.offset
+	end := min(start+vh, len(filtered))
+
+	for i := start; i < end; i++ {
+		b.WriteString("  " + m.renderEvent(filtered[i]) + "\n")
 	}
-	b.WriteString("\n")
+	// Pad empty rows
+	for i := end - start; i < vh; i++ {
+		b.WriteString("\n")
+	}
 
-	// --- Stats ---
+	// --- Stats (2 lines) ---
 	b.WriteString("  " + titleStyle.Render("Stats") + " " + dimStyle.Render(strings.Repeat("─", max(0, m.width-10))) + "\n")
-	stats := fmt.Sprintf("  %d synced │ %s total │ %d errors",
-		m.totalSynced, m.totalBytes, m.totalErrors)
+	stats := fmt.Sprintf("  %d events │ %d errors", m.totalSynced, m.totalErrors)
 	b.WriteString(stats + "\n")
-	b.WriteString("\n")
 
-	// --- Help / filter ---
+	// --- Help (1 line) ---
 	if m.filtering {
 		b.WriteString(helpStyle.Render(fmt.Sprintf("  filter: %s█  (enter apply  esc clear)", m.filter)))
 	} else {
-		help := "  q quit  p pause  r full resync  l logs  d dry-run  / filter"
+		help := "  q quit  p pause  r resync  ↑↓ scroll  l logs  / filter"
 		if m.filter != "" {
 			help += fmt.Sprintf("  [filter: %s]", m.filter)
 		}
@@ -233,18 +249,20 @@ func (m DashboardModel) statusDisplay() (string, string) {
 
 // renderEvent formats a single sync event line.
 func (m DashboardModel) renderEvent(evt SyncEvent) string {
+	ts := dimStyle.Render(evt.Time.Format("15:04:05"))
 	switch evt.Status {
 	case "synced":
 		name := padRight(evt.File, 30)
-		return statusSynced.Render("✓") + " " + name + dimStyle.Render(fmt.Sprintf("%8s  %5s", evt.Size, evt.Duration.Truncate(100*time.Millisecond)))
-	case "syncing":
-		name := padRight(evt.File, 30)
-		return statusSyncing.Render("⟳") + " " + name + statusSyncing.Render("syncing...")
+		detail := ""
+		if evt.Size != "" {
+			detail = dimStyle.Render(fmt.Sprintf("%8s  %s", evt.Size, evt.Duration.Truncate(100*time.Millisecond)))
+		}
+		return ts + "  " + statusSynced.Render("✓") + " " + name + detail
 	case "error":
 		name := padRight(evt.File, 30)
-		return statusError.Render("✗") + " " + name + statusError.Render("error")
+		return ts + "  " + statusError.Render("✗") + " " + name + statusError.Render("error")
 	default:
-		return evt.File
+		return ts + "  " + evt.File
 	}
 }
 
