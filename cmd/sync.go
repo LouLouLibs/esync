@@ -212,11 +212,27 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 
 		// Group files by top-level directory
 		groups := groupFilesByTopLevel(result.Files)
+
+		// Per-file sizes from --progress are unreliable with --info=progress2
+		// (fast transfers may skip the 100% line), so when per-file sizes
+		// are missing, distribute the rsync --stats total across groups
+		// weighted by file count.
+		totalGroupBytes := int64(0)
+		totalGroupFiles := 0
+		for _, g := range groups {
+			totalGroupBytes += g.bytes
+			totalGroupFiles += g.count
+		}
+
 		for _, g := range groups {
 			file := g.name
-			size := formatSize(g.bytes)
+			bytes := g.bytes
+			if totalGroupBytes == 0 && result.BytesTotal > 0 && totalGroupFiles > 0 {
+				bytes = result.BytesTotal * int64(g.count) / int64(totalGroupFiles)
+			}
+			size := formatSize(bytes)
 			if g.count > 1 {
-				size = fmt.Sprintf("%d files  %s", g.count, formatSize(g.bytes))
+				size = fmt.Sprintf("%d files  %s", g.count, formatSize(bytes))
 			}
 			syncCh <- tui.SyncEvent{
 				File:     file,
