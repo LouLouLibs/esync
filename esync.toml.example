@@ -1,0 +1,115 @@
+# =============================================================================
+# esync configuration file
+# =============================================================================
+#
+# Copy this file to one of the following locations:
+#   ./esync.toml                      (project-local, highest priority)
+#   ~/.config/esync/config.toml       (user-level)
+#   /etc/esync/config.toml            (system-wide)
+#
+# esync searches these paths in order and uses the first one found.
+# You can also pass an explicit path with:  esync --config /path/to/config.toml
+#
+
+
+# -----------------------------------------------------------------------------
+# [sync]  --  Defines what to sync and where
+# -----------------------------------------------------------------------------
+[sync]
+
+# Local directory to watch and sync FROM.  (Required)
+local  = "."
+
+# Remote destination to sync TO.  (Required)
+# For remote targets use scp-style notation:  user@host:/path/to/dest
+# For local-to-local sync just use an absolute or relative path.
+remote = "user@host:/path/to/dest"
+
+# Polling interval in seconds for the file-system watcher.
+# Default: 1
+interval = 1
+
+
+# -----------------------------------------------------------------------------
+# [sync.ssh]  --  SSH connection settings (optional)
+# -----------------------------------------------------------------------------
+# Uncomment and configure this section if you need fine-grained control over
+# the SSH connection used for remote syncing.  When omitted, esync derives
+# SSH parameters from the remote string above.
+
+# [sync.ssh]
+# host             = "myserver.com"       # SSH hostname
+# user             = "deploy"             # SSH username
+# port             = 22                   # SSH port (default: 22)
+# identity_file    = "~/.ssh/id_ed25519"  # Path to private key
+# interactive_auth = false                # Enable keyboard-interactive / 2FA auth
+
+
+# -----------------------------------------------------------------------------
+# [settings]  --  General behaviour tunables
+# -----------------------------------------------------------------------------
+[settings]
+
+# Debounce delay in milliseconds for the file-system watcher.
+# Events within this window are coalesced into a single sync.
+# Default: 500
+watcher_debounce = 500
+
+# Whether to run a full sync immediately when `esync sync` starts,
+# before entering the watch loop.
+# Default: false
+initial_sync = false
+
+# Global ignore patterns.  Matched files/directories are excluded from
+# watching AND from rsync.  Patterns follow rsync's --exclude syntax.
+ignore = [".git", "node_modules", ".DS_Store"]
+
+
+# -----------------------------------------------------------------------------
+# [settings.rsync]  --  rsync-specific options
+# -----------------------------------------------------------------------------
+[settings.rsync]
+
+# Use rsync archive mode (-a): preserves symlinks, permissions, timestamps,
+# group, owner, and device files.
+# Default: true
+archive = true
+
+# Compress data during transfer (-z).
+# Default: true
+compress = true
+
+# Keep incremental backups of overwritten files on the remote.
+# Default: false
+backup = false
+
+# Directory (relative to the remote root) where backups are stored
+# when backup = true.
+# Default: ".rsync_backup"
+backup_dir = ".rsync_backup"
+
+# Show per-file transfer progress (--progress).
+# Default: true
+progress = true
+
+# Additional raw arguments passed directly to the rsync command.
+# Example: ["--delete", "--verbose"]
+extra_args = []
+
+# Extra rsync-only ignore patterns (appended after settings.ignore).
+# These are passed as --exclude flags to rsync but do NOT affect the
+# file-system watcher.
+ignore = []
+
+
+# -----------------------------------------------------------------------------
+# [settings.log]  --  Logging configuration
+# -----------------------------------------------------------------------------
+[settings.log]
+
+# Path to a log file.  When unset, logs go to stderr only.
+# file = "/var/log/esync.log"
+
+# Log format: "text" (human-readable) or "json".
+# Default: "text"
+format = "text"
