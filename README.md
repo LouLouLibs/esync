@@ -317,28 +317,36 @@ The interactive TUI (default mode) provides two views: Dashboard and Logs.
 
 ### Dashboard View
 
-| Key       | Action                         |
-|-----------|--------------------------------|
-| `q`       | Quit                           |
-| `Ctrl+C`  | Quit                           |
-| `p`       | Pause / resume watching        |
-| `l`       | Switch to log view             |
-| `/`       | Enter filter mode              |
-| `Enter`   | Apply filter (in filter mode)  |
-| `Esc`     | Clear filter (in filter mode)  |
+| Key          | Action                         |
+|--------------|--------------------------------|
+| `q`          | Quit                           |
+| `Ctrl+C`     | Quit                           |
+| `p`          | Pause / resume watching        |
+| `r`          | Force a full resync            |
+| `l`          | Switch to log view             |
+| `j` / `Down` | Scroll down                    |
+| `k` / `Up`   | Scroll up                      |
+| `/`          | Enter filter mode              |
+| `Enter`      | Apply filter (in filter mode)  |
+| `Esc`        | Clear filter (in filter mode)  |
 
 ### Log View
 
-| Key       | Action                         |
-|-----------|--------------------------------|
-| `q`       | Quit                           |
-| `Ctrl+C`  | Quit                           |
-| `l`       | Switch back to dashboard       |
-| `j` / `Down` | Scroll down                 |
-| `k` / `Up`   | Scroll up                   |
-| `/`       | Enter filter mode              |
-| `Enter`   | Apply filter (in filter mode)  |
-| `Esc`     | Clear filter (in filter mode)  |
+| Key          | Action                         |
+|--------------|--------------------------------|
+| `q`          | Quit                           |
+| `Ctrl+C`     | Quit                           |
+| `l`          | Switch back to dashboard       |
+| `j` / `Down` | Scroll down                    |
+| `k` / `Up`   | Scroll up                      |
+| `PgDn`       | Scroll down one page           |
+| `PgUp`       | Scroll up one page             |
+| `G`          | Jump to end                    |
+| `g`          | Jump to top                    |
+| `f`          | Toggle follow mode (tail -f)   |
+| `/`          | Enter filter mode              |
+| `Enter`      | Apply filter (in filter mode)  |
+| `Esc`        | Clear filter (in filter mode)  |
 
 ## Daemon Mode
 
