@@ -408,8 +408,9 @@ func (s *Syncer) extractStats(output string) (int, int64) {
 		}
 	}
 
-	// Match "Total file size: 5,678 bytes"
-	reBytes := regexp.MustCompile(`Total file size:\s*([\d,]+)`)
+	// Match "Total transferred file size: 5,678 bytes" (actual bytes sent,
+	// not the total source tree size reported by "Total file size:")
+	reBytes := regexp.MustCompile(`Total transferred file size:\s*([\d,]+)`)
 	if m := reBytes.FindStringSubmatch(output); len(m) > 1 {
 		cleaned := strings.ReplaceAll(m[1], ",", "")
 		if n, err := strconv.ParseInt(cleaned, 10, 64); err == nil {

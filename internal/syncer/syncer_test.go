@@ -250,7 +250,8 @@ src/main.go
 
 Number of files: 10
 Number of regular files transferred: 3
-Total file size: 5,678 bytes
+Total file size: 99,999 bytes
+Total transferred file size: 5,678 bytes
 sent 1,234 bytes  received 56 bytes  2,580.00 bytes/sec
 total size is 5,678  speedup is 4.40
 `
