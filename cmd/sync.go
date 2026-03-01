@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -159,38 +160,41 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 	syncCh := app.SyncEventChan()
 
 	handler := func() {
-		// Send a "syncing" event before starting
-		syncCh <- tui.SyncEvent{
-			File:   cfg.Sync.Local,
-			Status: "syncing",
-			Time:   time.Now(),
-		}
+		// Update header status to syncing
+		syncCh <- tui.SyncEvent{Status: "status:syncing"}
 
 		result, err := s.Run()
 		now := time.Now()
 
 		if err != nil {
 			syncCh <- tui.SyncEvent{
-				File:   cfg.Sync.Local,
+				File:   "sync error",
 				Status: "error",
 				Time:   now,
 			}
+			syncCh <- tui.SyncEvent{Status: "status:watching"}
 			return
 		}
 
-		// Send individual file events
-		for _, f := range result.Files {
+		// Group files by top-level directory
+		groups := groupFilesByTopLevel(result.Files)
+		for _, g := range groups {
+			file := g.name
+			size := formatSize(g.bytes)
+			if g.count > 1 {
+				size = fmt.Sprintf("%d files  %s", g.count, formatSize(g.bytes))
+			}
 			syncCh <- tui.SyncEvent{
-				File:     f.Name,
-				Size:     formatSize(f.Bytes),
+				File:     file,
+				Size:     size,
 				Duration: result.Duration,
 				Status:   "synced",
 				Time:     now,
 			}
 		}
 
-		// If no individual files reported, send a summary event
-		if len(result.Files) == 0 && result.FilesCount > 0 {
+		// Fallback: rsync ran but no individual files parsed
+		if len(groups) == 0 && result.FilesCount > 0 {
 			syncCh <- tui.SyncEvent{
 				File:     fmt.Sprintf("%d files", result.FilesCount),
 				Size:     formatSize(result.BytesTotal),
@@ -199,6 +203,9 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 				Time:     now,
 			}
 		}
+
+		// Reset header status
+		syncCh <- tui.SyncEvent{Status: "status:watching"}
 	}
 
 	w, err := watcher.New(
@@ -214,6 +221,13 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 	if err := w.Start(); err != nil {
 		return fmt.Errorf("starting watcher: %w", err)
 	}
+
+	resyncCh := app.ResyncChan()
+	go func() {
+		for range resyncCh {
+			handler()
+		}
+	}()
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
@@ -333,4 +347,47 @@ func formatSize(bytes int64) string {
 	default:
 		return fmt.Sprintf("%dB", bytes)
 	}
+}
+
+// groupedEvent represents a top-level directory or root file for the TUI.
+type groupedEvent struct {
+	name  string // "cmd/" or "main.go"
+	count int    // number of files (1 for root files)
+	bytes int64  // total bytes
+}
+
+// groupFilesByTopLevel collapses file entries into top-level directories
+// and root files. "cmd/sync.go" + "cmd/init.go" become one entry "cmd/" with count=2.
+func groupFilesByTopLevel(files []syncer.FileEntry) []groupedEvent {
+	dirMap := make(map[string]*groupedEvent)
+	var rootFiles []groupedEvent
+	var dirOrder []string
+
+	for _, f := range files {
+		parts := strings.SplitN(f.Name, "/", 2)
+		if len(parts) == 1 {
+			// Root-level file
+			rootFiles = append(rootFiles, groupedEvent{
+				name:  f.Name,
+				count: 1,
+				bytes: f.Bytes,
+			})
+		} else {
+			dir := parts[0] + "/"
+			if g, ok := dirMap[dir]; ok {
+				g.count++
+				g.bytes += f.Bytes
+			} else {
+				dirMap[dir] = &groupedEvent{name: dir, count: 1, bytes: f.Bytes}
+				dirOrder = append(dirOrder, dir)
+			}
+		}
+	}
+
+	var out []groupedEvent
+	for _, dir := range dirOrder {
+		out = append(out, *dirMap[dir])
+	}
+	out = append(out, rootFiles...)
+	return out
 }
