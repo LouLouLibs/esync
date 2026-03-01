@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -53,6 +55,9 @@ func init() {
 
 	rootCmd.AddCommand(syncCmd)
 }
+
+// reProgress2 matches the percentage in rsync --info=progress2 output lines.
+var reProgress2 = regexp.MustCompile(`(\d+)%`)
 
 // ---------------------------------------------------------------------------
 // Config loading
@@ -156,14 +161,43 @@ func runSync(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 func runTUI(cfg *config.Config, s *syncer.Syncer) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	app := tui.NewApp(cfg.Sync.Local, cfg.Sync.Remote)
 	syncCh := app.SyncEventChan()
+
+	logCh := app.LogEntryChan()
 
 	handler := func() {
 		// Update header status to syncing
 		syncCh <- tui.SyncEvent{Status: "status:syncing"}
 
-		result, err := s.Run()
+		var lastPct string
+		onLine := func(line string) {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				return
+			}
+			// Stream to log view
+			select {
+			case logCh <- tui.LogEntry{Time: time.Now(), Level: "INF", Message: trimmed}:
+			default:
+			}
+			// Parse progress2 percentage and update header
+			if m := reProgress2.FindStringSubmatch(trimmed); len(m) > 1 {
+				pct := m[1]
+				if pct != lastPct {
+					lastPct = pct
+					select {
+					case syncCh <- tui.SyncEvent{Status: "status:syncing " + pct + "%"}:
+					default:
+					}
+				}
+			}
+		}
+
+		result, err := s.RunWithProgress(ctx, onLine)
 		now := time.Now()
 
 		if err != nil {

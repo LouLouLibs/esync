@@ -513,5 +513,9 @@ esync sync --dry-run
 ## System Requirements
 
 - **Go** 1.22+ (for building from source)
-- **rsync** 3.x
+- **rsync** 3.1+ (required for `--info=progress2` real-time transfer progress)
 - **macOS** or **Linux** (uses fsnotify for filesystem events)
+
+> **macOS note:** The built-in `/usr/bin/rsync` is Apple's `openrsync` which is too old.
+> Install a modern rsync via Homebrew: `brew install rsync`. esync will automatically
+> prefer the Homebrew version when available.

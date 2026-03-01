@@ -233,14 +233,18 @@ func (m DashboardModel) View() string {
 
 // statusDisplay returns the icon and styled text for the current status.
 func (m DashboardModel) statusDisplay() (string, string) {
-	switch m.status {
-	case "watching":
+	switch {
+	case m.status == "watching":
 		return statusSynced.Render("●"), statusSynced.Render("Watching")
-	case "syncing":
-		return statusSyncing.Render("⟳"), statusSyncing.Render("Syncing")
-	case "paused":
+	case strings.HasPrefix(m.status, "syncing"):
+		label := "Syncing"
+		if pct := strings.TrimPrefix(m.status, "syncing "); pct != m.status {
+			label = "Syncing " + pct
+		}
+		return statusSyncing.Render("⟳"), statusSyncing.Render(label)
+	case m.status == "paused":
 		return dimStyle.Render("⏸"), dimStyle.Render("Paused")
-	case "error":
+	case m.status == "error":
 		return statusError.Render("✗"), statusError.Render("Error")
 	default:
 		return "?", m.status

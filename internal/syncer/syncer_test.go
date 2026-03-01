@@ -35,13 +35,13 @@ func TestBuildCommand_Local(t *testing.T) {
 	s := New(cfg)
 	cmd := s.BuildCommand()
 
-	// Should start with rsync
-	if cmd[0] != "rsync" {
-		t.Errorf("cmd[0] = %q, want %q", cmd[0], "rsync")
+	// Should start with rsync (possibly absolute path)
+	if !strings.HasSuffix(cmd[0], "rsync") {
+		t.Errorf("cmd[0] = %q, want rsync binary", cmd[0])
 	}
 
 	// Must contain base flags
-	for _, flag := range []string{"--recursive", "--times", "--progress", "--copy-unsafe-links"} {
+	for _, flag := range []string{"--recursive", "--times", "--progress", "--info=progress2", "--copy-unsafe-links"} {
 		if !containsArg(cmd, flag) {
 			t.Errorf("missing flag %q in %v", flag, cmd)
 		}

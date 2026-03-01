@@ -3,7 +3,10 @@
 package syncer
 
 import (
+	"bufio"
+	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -16,6 +19,9 @@ import (
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+// ProgressFunc is called for each line of rsync output during RunWithProgress.
+type ProgressFunc func(line string)
 
 // FileEntry records a transferred file and its size in bytes.
 type FileEntry struct {
@@ -52,22 +58,70 @@ func New(cfg *config.Config) *Syncer {
 // Public methods
 // ---------------------------------------------------------------------------
 
+// rsyncBin returns the path to the rsync binary, preferring a homebrew
+// install over the macOS system openrsync (which lacks --info=progress2).
+func rsyncBin() string {
+	candidates := []string{
+		"/opt/homebrew/bin/rsync",
+		"/usr/local/bin/rsync",
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return "rsync" // fallback to PATH
+}
+
+// minRsyncVersion is the minimum rsync version required for --info=progress2.
+const minRsyncVersion = "3.1.0"
+
 // CheckRsync verifies that rsync is installed and returns its version string.
-// Returns an error if rsync is not found on PATH.
+// Returns an error if rsync is not found on PATH or if the version is too old
+// (--info=progress2 requires rsync >= 3.1.0).
 func CheckRsync() (string, error) {
-	out, err := exec.Command("rsync", "--version").Output()
+	out, err := exec.Command(rsyncBin(), "--version").Output()
 	if err != nil {
-		return "", fmt.Errorf("rsync not found: %w\nInstall rsync (e.g. brew install rsync, apt install rsync) and try again", err)
+		return "", fmt.Errorf("rsync not found: %w\nInstall rsync 3.1+ (e.g. brew install rsync, apt install rsync) and try again", err)
 	}
 	// First line is "rsync  version X.Y.Z  protocol version N"
-	firstLine := strings.SplitN(string(out), "\n", 2)[0]
-	return strings.TrimSpace(firstLine), nil
+	firstLine := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
+
+	// Extract version number
+	if m := reRsyncVersion.FindStringSubmatch(firstLine); len(m) > 1 {
+		if compareVersions(m[1], minRsyncVersion) < 0 {
+			return firstLine, fmt.Errorf("rsync %s is too old (need %s+); install a newer rsync (e.g. brew install rsync)", m[1], minRsyncVersion)
+		}
+	}
+
+	return firstLine, nil
+}
+
+// reRsyncVersion extracts the version number from rsync --version output.
+var reRsyncVersion = regexp.MustCompile(`version\s+(\d+\.\d+\.\d+)`)
+
+// compareVersions compares two dotted version strings (e.g. "3.1.0" vs "2.6.9").
+// Returns -1, 0, or 1.
+func compareVersions(a, b string) int {
+	pa := strings.Split(a, ".")
+	pb := strings.Split(b, ".")
+	for i := 0; i < len(pa) && i < len(pb); i++ {
+		na, _ := strconv.Atoi(pa[i])
+		nb, _ := strconv.Atoi(pb[i])
+		if na < nb {
+			return -1
+		}
+		if na > nb {
+			return 1
+		}
+	}
+	return len(pa) - len(pb)
 }
 
 // BuildCommand constructs the rsync argument list with all flags, excludes,
 // SSH options, extra_args, source (trailing /), and destination.
 func (s *Syncer) BuildCommand() []string {
-	args := []string{"rsync", "--recursive", "--times", "--progress", "--stats"}
+	args := []string{rsyncBin(), "--recursive", "--times", "--progress", "--stats", "--info=progress2"}
 
 	rsync := s.cfg.Settings.Rsync
 
@@ -128,12 +182,16 @@ func (s *Syncer) BuildCommand() []string {
 
 // Run executes the rsync command, captures output, and parses stats.
 func (s *Syncer) Run() (*Result, error) {
+	return s.RunContext(context.Background())
+}
+
+// RunContext executes the rsync command with a context for cancellation.
+func (s *Syncer) RunContext(ctx context.Context) (*Result, error) {
 	args := s.BuildCommand()
 
 	start := time.Now()
 
-	// args[0] is "rsync", the rest are arguments
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	output, err := cmd.CombinedOutput()
 	duration := time.Since(start)
 
@@ -152,6 +210,64 @@ func (s *Syncer) Run() (*Result, error) {
 		result.Success = false
 		result.ErrorMessage = fmt.Sprintf("rsync error: %v\n%s", err, outStr)
 		return result, err
+	}
+
+	result.Success = true
+	return result, nil
+}
+
+// RunWithProgress executes rsync while streaming each output line to onLine.
+// The context allows cancellation (e.g. when the TUI exits).
+// If onLine is nil it falls through to RunContext().
+func (s *Syncer) RunWithProgress(ctx context.Context, onLine ProgressFunc) (*Result, error) {
+	if onLine == nil {
+		return s.RunContext(ctx)
+	}
+
+	args := s.BuildCommand()
+	start := time.Now()
+
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		return nil, fmt.Errorf("creating pipe: %w", err)
+	}
+	cmd.Stdout = pw
+	cmd.Stderr = pw
+
+	if err := cmd.Start(); err != nil {
+		pw.Close()
+		pr.Close()
+		return nil, fmt.Errorf("starting rsync: %w", err)
+	}
+	pw.Close() // parent closes write end so scanner sees EOF
+
+	var buf strings.Builder
+	scanner := bufio.NewScanner(pr)
+	for scanner.Scan() {
+		line := scanner.Text()
+		buf.WriteString(line + "\n")
+		onLine(line)
+	}
+	pr.Close()
+
+	waitErr := cmd.Wait()
+	duration := time.Since(start)
+	outStr := buf.String()
+
+	result := &Result{
+		Duration: duration,
+		Files:    s.extractFiles(outStr),
+	}
+	count, bytes := s.extractStats(outStr)
+	result.FilesCount = count
+	result.BytesTotal = bytes
+
+	if waitErr != nil {
+		result.Success = false
+		result.ErrorMessage = fmt.Sprintf("rsync error: %v\n%s", waitErr, outStr)
+		return result, waitErr
 	}
 
 	result.Success = true
@@ -223,6 +339,11 @@ func (s *Syncer) extractFiles(output string) []FileEntry {
 		trimmed := strings.TrimSpace(line)
 
 		if trimmed == "" || trimmed == "sending incremental file list" {
+			continue
+		}
+
+		// Skip --info=progress2 summary lines (e.g. "  1,234  56%  1.23MB/s  0:00:01 (xfr#1, to-chk=2/4)")
+		if strings.Contains(trimmed, "xfr#") || strings.Contains(trimmed, "to-chk=") {
 			continue
 		}
 
