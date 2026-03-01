@@ -35,6 +35,8 @@ type SyncSection struct {
 type RsyncSettings struct {
 	Archive   bool     `mapstructure:"archive"`
 	Compress  bool     `mapstructure:"compress"`
+	Delete    bool     `mapstructure:"delete"`
+	CopyLinks bool     `mapstructure:"copy_links"`
 	Backup    bool     `mapstructure:"backup"`
 	BackupDir string   `mapstructure:"backup_dir"`
 	Progress  bool     `mapstructure:"progress"`
@@ -80,6 +82,8 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("settings.initial_sync", false)
 	v.SetDefault("settings.rsync.archive", true)
 	v.SetDefault("settings.rsync.compress", true)
+	v.SetDefault("settings.rsync.delete", false)
+	v.SetDefault("settings.rsync.copy_links", false)
 	v.SetDefault("settings.rsync.backup", false)
 	v.SetDefault("settings.rsync.backup_dir", ".rsync_backup")
 	v.SetDefault("settings.rsync.progress", true)
@@ -199,6 +203,8 @@ ignore           = [".git", "node_modules", ".DS_Store"]
 [settings.rsync]
 archive    = true
 compress   = true
+delete     = false
+copy_links = false
 backup     = false
 backup_dir = ".rsync_backup"
 progress   = true

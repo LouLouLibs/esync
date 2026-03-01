@@ -181,8 +181,8 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 		// Send individual file events
 		for _, f := range result.Files {
 			syncCh <- tui.SyncEvent{
-				File:     f,
-				Size:     formatSize(result.BytesTotal),
+				File:     f.Name,
+				Size:     formatSize(f.Bytes),
 				Duration: result.Duration,
 				Status:   "synced",
 				Time:     now,

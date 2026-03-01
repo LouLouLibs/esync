@@ -17,13 +17,19 @@ import (
 // Types
 // ---------------------------------------------------------------------------
 
+// FileEntry records a transferred file and its size in bytes.
+type FileEntry struct {
+	Name  string
+	Bytes int64
+}
+
 // Result captures the outcome of a sync operation.
 type Result struct {
 	Success      bool
 	FilesCount   int
 	BytesTotal   int64
 	Duration     time.Duration
-	Files        []string
+	Files        []FileEntry
 	ErrorMessage string
 }
 
@@ -46,12 +52,32 @@ func New(cfg *config.Config) *Syncer {
 // Public methods
 // ---------------------------------------------------------------------------
 
+// CheckRsync verifies that rsync is installed and returns its version string.
+// Returns an error if rsync is not found on PATH.
+func CheckRsync() (string, error) {
+	out, err := exec.Command("rsync", "--version").Output()
+	if err != nil {
+		return "", fmt.Errorf("rsync not found: %w\nInstall rsync (e.g. brew install rsync, apt install rsync) and try again", err)
+	}
+	// First line is "rsync  version X.Y.Z  protocol version N"
+	firstLine := strings.SplitN(string(out), "\n", 2)[0]
+	return strings.TrimSpace(firstLine), nil
+}
+
 // BuildCommand constructs the rsync argument list with all flags, excludes,
 // SSH options, extra_args, source (trailing /), and destination.
 func (s *Syncer) BuildCommand() []string {
-	args := []string{"rsync", "--recursive", "--times", "--progress", "--copy-unsafe-links"}
+	args := []string{"rsync", "--recursive", "--times", "--progress", "--stats"}
 
 	rsync := s.cfg.Settings.Rsync
+
+	// Symlink handling: --copy-links dereferences all symlinks,
+	// --copy-unsafe-links only dereferences symlinks pointing outside the tree.
+	if rsync.CopyLinks {
+		args = append(args, "--copy-links")
+	} else {
+		args = append(args, "--copy-unsafe-links")
+	}
 
 	// Conditional flags
 	if rsync.Archive {
@@ -59,6 +85,9 @@ func (s *Syncer) BuildCommand() []string {
 	}
 	if rsync.Compress {
 		args = append(args, "--compress")
+	}
+	if rsync.Delete {
+		args = append(args, "--delete")
 	}
 	if rsync.Backup {
 		args = append(args, "--backup")
@@ -176,45 +205,66 @@ func (s *Syncer) buildDestination() string {
 	return fmt.Sprintf("%s:%s", ssh.Host, remote)
 }
 
-// extractFiles extracts file names from rsync output.
-// rsync lists transferred files one per line between the header
-// "sending incremental file list" and the blank line before stats.
-func (s *Syncer) extractFiles(output string) []string {
-	var files []string
+// reProgressSize matches the final size in a progress line, e.g.
+// "  8772 100%  61.99MB/s  00:00:00 (xfer#1, to-check=2/4)"
+var reProgressSize = regexp.MustCompile(`^\s*([\d,]+)\s+100%`)
+
+// extractFiles extracts transferred file names and per-file sizes from
+// rsync --progress output. Each filename line is followed by one or more
+// progress lines; the final one (with "100%") contains the file size.
+func (s *Syncer) extractFiles(output string) []FileEntry {
+	var files []FileEntry
 	lines := strings.Split(output, "\n")
-	inList := false
+
+	var pending string // last seen filename awaiting a size
 
 	for _, line := range lines {
-		line = strings.TrimSpace(line)
+		line = strings.TrimRight(line, "\r")
+		trimmed := strings.TrimSpace(line)
 
-		if line == "sending incremental file list" {
-			inList = true
+		if trimmed == "" || trimmed == "sending incremental file list" {
 			continue
 		}
 
-		if !inList {
-			continue
-		}
-
-		// End of file list: blank line or stats line
-		if line == "" || strings.HasPrefix(line, "sent ") || strings.HasPrefix(line, "total size") {
-			if line == "" {
-				continue
-			}
+		// Stop at stats section
+		if strings.HasPrefix(trimmed, "Number of") ||
+			strings.HasPrefix(trimmed, "sent ") ||
+			strings.HasPrefix(trimmed, "total size") {
 			break
 		}
 
-		// Skip progress lines (contain % or bytes/sec mid-line)
-		if strings.Contains(line, "%") || strings.Contains(line, "bytes/sec") {
+		// Skip directory entries
+		if strings.HasSuffix(trimmed, "/") || trimmed == "." || trimmed == "./" {
 			continue
 		}
 
-		// Skip lines starting with "Number of" (stats)
-		if strings.HasPrefix(line, "Number of") {
-			break
+		// Check if this is a progress line (contains 100%)
+		if m := reProgressSize.FindStringSubmatch(trimmed); len(m) > 1 && pending != "" {
+			cleaned := strings.ReplaceAll(m[1], ",", "")
+			size, _ := strconv.ParseInt(cleaned, 10, 64)
+			files = append(files, FileEntry{Name: pending, Bytes: size})
+			pending = ""
+			continue
 		}
 
-		files = append(files, line)
+		// Skip other progress lines (partial %, bytes/sec)
+		if strings.Contains(trimmed, "%") || strings.Contains(trimmed, "bytes/sec") {
+			continue
+		}
+
+		// Flush any pending file without a matched size
+		if pending != "" {
+			files = append(files, FileEntry{Name: pending})
+			pending = ""
+		}
+
+		// This looks like a filename
+		pending = trimmed
+	}
+
+	// Flush last pending
+	if pending != "" {
+		files = append(files, FileEntry{Name: pending})
 	}
 
 	return files
@@ -227,8 +277,8 @@ func (s *Syncer) extractStats(output string) (int, int64) {
 	var count int
 	var totalBytes int64
 
-	// Match "Number of regular files transferred: 3"
-	reCount := regexp.MustCompile(`Number of regular files transferred:\s*([\d,]+)`)
+	// Match "Number of regular files transferred: 3" or "Number of files transferred: 2"
+	reCount := regexp.MustCompile(`Number of (?:regular )?files transferred:\s*([\d,]+)`)
 	if m := reCount.FindStringSubmatch(output); len(m) > 1 {
 		cleaned := strings.ReplaceAll(m[1], ",", "")
 		if n, err := strconv.Atoi(cleaned); err == nil {

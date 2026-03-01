@@ -181,8 +181,10 @@ func (w *Watcher) eventLoop() {
 }
 
 // isRelevantOp returns true for file-system operations we care about.
+// Chmod is included because touch(1) and some editors only update metadata,
+// which fsnotify surfaces as Chmod on macOS (kqueue) and Linux (inotify).
 func isRelevantOp(op fsnotify.Op) bool {
-	return op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0
+	return op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename|fsnotify.Chmod) != 0
 }
 
 // shouldIgnore checks the base name of path against all ignore patterns

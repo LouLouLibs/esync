@@ -238,8 +238,8 @@ total size is 5,678  speedup is 4.40
 	}
 	expected := []string{"src/main.go", "src/utils.go", "config.toml"}
 	for i, f := range files {
-		if f != expected[i] {
-			t.Errorf("files[%d] = %q, want %q", i, f, expected[i])
+		if f.Name != expected[i] {
+			t.Errorf("files[%d].Name = %q, want %q", i, f.Name, expected[i])
 		}
 	}
 }
