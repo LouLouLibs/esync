@@ -3,7 +3,9 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -301,9 +303,18 @@ func runDaemon(cfg *config.Config, s *syncer.Syncer) error {
 	if err := w.Start(); err != nil {
 		return fmt.Errorf("starting watcher: %w", err)
 	}
+	defer w.Stop()
 
-	// Block forever — signal handling is added in Task 11
-	select {}
+	// Block until SIGINT or SIGTERM
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+
+	if log != nil {
+		log.Info("stopping", nil)
+	}
+	fmt.Println("\nesync daemon stopped.")
+	return nil
 }
 
 // ---------------------------------------------------------------------------
