@@ -35,15 +35,16 @@ type LogViewModel struct {
 	height    int
 	filter    string
 	filtering bool
+	follow    bool // tail mode: auto-scroll to bottom on new entries
 }
 
 // ---------------------------------------------------------------------------
 // Constructor
 // ---------------------------------------------------------------------------
 
-// NewLogView returns an empty LogViewModel.
+// NewLogView returns an empty LogViewModel with follow mode enabled.
 func NewLogView() LogViewModel {
-	return LogViewModel{}
+	return LogViewModel{follow: true}
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +67,10 @@ func (m LogViewModel) Update(msg tea.Msg) (LogViewModel, tea.Cmd) {
 		if len(m.entries) > 1000 {
 			m.entries = m.entries[len(m.entries)-1000:]
 		}
+		if m.follow {
+			filtered := m.filteredEntries()
+			m.offset = max(0, len(filtered)-m.viewHeight())
+		}
 		return m, nil
 
 	case tea.WindowSizeMsg:
@@ -80,15 +85,31 @@ func (m LogViewModel) Update(msg tea.Msg) (LogViewModel, tea.Cmd) {
 // updateNormal handles keys when NOT in filtering mode.
 func (m LogViewModel) updateNormal(msg tea.KeyMsg) (LogViewModel, tea.Cmd) {
 	filtered := m.filteredEntries()
+	maxOffset := max(0, len(filtered)-m.viewHeight())
 	switch msg.String() {
 	case "up", "k":
+		m.follow = false
 		if m.offset > 0 {
 			m.offset--
 		}
 	case "down", "j":
-		maxOffset := max(0, len(filtered)-m.viewHeight())
 		if m.offset < maxOffset {
 			m.offset++
+		}
+	case "pgup":
+		m.follow = false
+		m.offset = max(0, m.offset-m.viewHeight())
+	case "pgdown":
+		m.offset = min(maxOffset, m.offset+m.viewHeight())
+	case "g":
+		m.follow = false
+		m.offset = 0
+	case "G":
+		m.offset = maxOffset
+	case "f":
+		m.follow = !m.follow
+		if m.follow {
+			m.offset = maxOffset
 		}
 	case "/":
 		m.filtering = true
@@ -150,7 +171,10 @@ func (m LogViewModel) View() string {
 	if m.filtering {
 		b.WriteString(helpStyle.Render(fmt.Sprintf("  filter: %s█  (enter apply  esc clear)", m.filter)))
 	} else {
-		help := "  ↑↓ scroll  / filter  l back  q quit"
+		help := "  ↑↓/pgup/pgdn scroll  g top  G end  f follow  / filter  l back  q quit"
+		if m.follow {
+			help += "  [FOLLOW]"
+		}
 		if m.filter != "" {
 			help += fmt.Sprintf("  [filter: %s]", m.filter)
 		}
