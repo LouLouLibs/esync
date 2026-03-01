@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/eloualiche/esync/internal/config"
+	"github.com/louloulibs/esync/internal/config"
 )
 
 // ---------------------------------------------------------------------------

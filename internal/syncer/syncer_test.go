@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/eloualiche/esync/internal/config"
+	"github.com/louloulibs/esync/internal/config"
 )
 
 // ---------------------------------------------------------------------------

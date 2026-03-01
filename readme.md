@@ -7,13 +7,13 @@ A lightweight file synchronization tool that watches your local directory for ch
 Install with `go install`:
 
 ```bash
-go install github.com/eloualiche/esync@latest
+go install github.com/louloulibs/esync@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/eloualiche/esync.git
+git clone https://github.com/louloulibs/esync.git
 cd esync
 go build -o esync .
 ```

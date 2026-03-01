@@ -1,4 +1,4 @@
-module github.com/eloualiche/esync
+module github.com/louloulibs/esync
 
 go 1.25.0
 

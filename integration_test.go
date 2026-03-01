@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eloualiche/esync/internal/config"
-	"github.com/eloualiche/esync/internal/syncer"
-	"github.com/eloualiche/esync/internal/watcher"
+	"github.com/louloulibs/esync/internal/config"
+	"github.com/louloulibs/esync/internal/syncer"
+	"github.com/louloulibs/esync/internal/watcher"
 )
 
 // TestLocalSyncIntegration verifies that the Syncer can rsync files between

@@ -11,11 +11,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/eloualiche/esync/internal/config"
-	"github.com/eloualiche/esync/internal/logger"
-	"github.com/eloualiche/esync/internal/syncer"
-	"github.com/eloualiche/esync/internal/tui"
-	"github.com/eloualiche/esync/internal/watcher"
+	"github.com/louloulibs/esync/internal/config"
+	"github.com/louloulibs/esync/internal/logger"
+	"github.com/louloulibs/esync/internal/syncer"
+	"github.com/louloulibs/esync/internal/tui"
+	"github.com/louloulibs/esync/internal/watcher"
 )
 
 // ---------------------------------------------------------------------------
