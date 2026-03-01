@@ -79,6 +79,16 @@ archive = true
 # Default: true
 compress = true
 
+# Delete files on the remote that no longer exist locally (--delete).
+# This makes the remote an exact mirror of the local directory.
+# Default: false
+delete = false
+
+# Follow all symlinks and copy the files they point to (--copy-links).
+# When false, only symlinks pointing outside the source tree are dereferenced.
+# Default: false
+copy_links = false
+
 # Keep incremental backups of overwritten files on the remote.
 # Default: false
 backup = false
