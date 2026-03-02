@@ -20,5 +20,5 @@ esync
 # temporary ignores
 test-sync
 tests
-esync.toml
+/esync.toml
 sync.log

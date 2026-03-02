@@ -1,0 +1,10 @@
+[sync]
+local  = "."
+remote = "/tmp/esync-demo"
+
+[settings]
+ignore = [".git", ".DS_Store", "*.tape", "*.gif", "config/secrets.env"]
+
+[settings.rsync]
+archive  = true
+compress = false

@@ -1,8 +1,17 @@
-# esync
+<div align="center">
+
+<h1>esync</h1>
+<h3>Watch local files and sync them with rsync, shown in a live TUI</h3>
 
 [![Vibecoded](https://img.shields.io/badge/vibecoded-%E2%9C%A8-blueviolet)](https://claude.ai)
 
-A lightweight file synchronization tool that watches your local directory for changes and automatically syncs them to a local or remote destination using rsync.
+<a href="demo/demo.gif">
+<img src="demo/demo.gif" width="800" alt="Demo of esync TUI" />
+</a>
+
+</div>
+
+***
 
 ## Installation
 
