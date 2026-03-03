@@ -256,14 +256,14 @@ func (m DashboardModel) renderEvent(evt SyncEvent) string {
 	ts := dimStyle.Render(evt.Time.Format("15:04:05"))
 	switch evt.Status {
 	case "synced":
-		name := padRight(evt.File, 30)
+		name := padRight(abbreviatePath(evt.File, 30), 30)
 		detail := ""
 		if evt.Size != "" {
 			detail = dimStyle.Render(fmt.Sprintf("%18s  %s", evt.Size, evt.Duration.Truncate(100*time.Millisecond)))
 		}
 		return ts + "  " + statusSynced.Render("✓") + " " + name + detail
 	case "error":
-		name := padRight(evt.File, 30)
+		name := padRight(abbreviatePath(evt.File, 30), 30)
 		return ts + "  " + statusError.Render("✗") + " " + name + statusError.Render("error")
 	default:
 		return ts + "  " + evt.File
@@ -283,6 +283,29 @@ func (m DashboardModel) filteredEvents() []SyncEvent {
 		}
 	}
 	return out
+}
+
+// abbreviatePath shortens a file path to fit within maxLen by replacing
+// leading directory segments with their first letter.
+// "internal/syncer/syncer.go" → "i/s/syncer.go"
+func abbreviatePath(p string, maxLen int) string {
+	if len(p) <= maxLen {
+		return p
+	}
+	parts := strings.Split(p, "/")
+	if len(parts) <= 1 {
+		return p
+	}
+	// Shorten directory segments from the left, keep the filename intact.
+	for i := 0; i < len(parts)-1; i++ {
+		if len(parts[i]) > 1 {
+			parts[i] = parts[i][:1]
+		}
+		if len(strings.Join(parts, "/")) <= maxLen {
+			break
+		}
+	}
+	return strings.Join(parts, "/")
 }
 
 // padRight pads s with spaces to width n, truncating if necessary.
