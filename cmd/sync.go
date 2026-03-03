@@ -408,8 +408,11 @@ type groupedEvent struct {
 
 // groupFilesByTopLevel collapses file entries into top-level directories
 // and root files. "cmd/sync.go" + "cmd/init.go" become one entry "cmd/" with count=2.
+// When a directory contains only one file, the full relative path is kept.
 func groupFilesByTopLevel(files []syncer.FileEntry) []groupedEvent {
 	dirMap := make(map[string]*groupedEvent)
+	// Track the original filename for single-file groups.
+	dirFirstFile := make(map[string]string)
 	var rootFiles []groupedEvent
 	var dirOrder []string
 
@@ -429,6 +432,7 @@ func groupFilesByTopLevel(files []syncer.FileEntry) []groupedEvent {
 				g.bytes += f.Bytes
 			} else {
 				dirMap[dir] = &groupedEvent{name: dir, count: 1, bytes: f.Bytes}
+				dirFirstFile[dir] = f.Name
 				dirOrder = append(dirOrder, dir)
 			}
 		}
@@ -436,7 +440,11 @@ func groupFilesByTopLevel(files []syncer.FileEntry) []groupedEvent {
 
 	var out []groupedEvent
 	for _, dir := range dirOrder {
-		out = append(out, *dirMap[dir])
+		g := *dirMap[dir]
+		if g.count == 1 {
+			g.name = dirFirstFile[dir]
+		}
+		out = append(out, g)
 	}
 	out = append(out, rootFiles...)
 	return out
