@@ -99,10 +99,23 @@ func (m DashboardModel) Update(msg tea.Msg) (DashboardModel, tea.Cmd) {
 			return m, nil
 		}
 
+		// Shift expanded indices since we're prepending
+		newExpanded := make(map[int]bool, len(m.expanded))
+		for idx, v := range m.expanded {
+			newExpanded[idx+1] = v
+		}
+		m.expanded = newExpanded
+
 		// Prepend event; cap at 500.
 		m.events = append([]SyncEvent{evt}, m.events...)
 		if len(m.events) > 500 {
 			m.events = m.events[:500]
+			// Clean up expanded entries beyond 500
+			for idx := range m.expanded {
+				if idx >= 500 {
+					delete(m.expanded, idx)
+				}
+			}
 		}
 		if evt.Status == "synced" {
 			m.lastSync = evt.Time
@@ -123,6 +136,9 @@ func (m DashboardModel) Update(msg tea.Msg) (DashboardModel, tea.Cmd) {
 
 // updateNormal handles keys when NOT in filtering mode.
 func (m DashboardModel) updateNormal(msg tea.KeyMsg) (DashboardModel, tea.Cmd) {
+	filtered := m.filteredEvents()
+	maxCursor := max(0, len(filtered)-1)
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -135,18 +151,36 @@ func (m DashboardModel) updateNormal(msg tea.KeyMsg) (DashboardModel, tea.Cmd) {
 	case "r":
 		return m, func() tea.Msg { return ResyncRequestMsg{} }
 	case "j", "down":
-		filtered := m.filteredEvents()
-		maxOffset := max(0, len(filtered)-m.eventViewHeight())
-		if m.offset < maxOffset {
-			m.offset++
+		if m.cursor < maxCursor {
+			m.cursor++
 		}
+		m.ensureCursorVisible()
 	case "k", "up":
-		if m.offset > 0 {
-			m.offset--
+		if m.cursor > 0 {
+			m.cursor--
+		}
+		m.ensureCursorVisible()
+	case "enter", "right":
+		if m.cursor < len(filtered) {
+			evt := filtered[m.cursor]
+			if len(evt.Files) > 0 {
+				idx := m.unfilteredIndex(m.cursor)
+				if idx >= 0 {
+					m.expanded[idx] = !m.expanded[idx]
+				}
+			}
+		}
+	case "left":
+		if m.cursor < len(filtered) {
+			idx := m.unfilteredIndex(m.cursor)
+			if idx >= 0 {
+				delete(m.expanded, idx)
+			}
 		}
 	case "/":
 		m.filtering = true
 		m.filter = ""
+		m.cursor = 0
 		m.offset = 0
 	}
 	return m, nil
@@ -200,14 +234,30 @@ func (m DashboardModel) View() string {
 
 	filtered := m.filteredEvents()
 	vh := m.eventViewHeight()
-	start := m.offset
-	end := min(start+vh, len(filtered))
+	nw := m.nameWidth()
 
-	for i := start; i < end; i++ {
-		b.WriteString("  " + m.renderEvent(filtered[i]) + "\n")
+	// Render events from offset, counting visible lines including expanded children
+	linesRendered := 0
+	for i := m.offset; i < len(filtered) && linesRendered < vh; i++ {
+		focused := i == m.cursor
+		b.WriteString(m.renderEvent(filtered[i], focused, nw) + "\n")
+		linesRendered++
+
+		// Render expanded children
+		idx := m.unfilteredIndex(i)
+		if idx >= 0 && m.expanded[idx] && len(filtered[i].Files) > 0 {
+			children := m.renderChildren(filtered[i].Files, nw)
+			for _, child := range children {
+				if linesRendered >= vh {
+					break
+				}
+				b.WriteString(child + "\n")
+				linesRendered++
+			}
+		}
 	}
 	// Pad empty rows
-	for i := end - start; i < vh; i++ {
+	for i := linesRendered; i < vh; i++ {
 		b.WriteString("\n")
 	}
 
@@ -220,7 +270,7 @@ func (m DashboardModel) View() string {
 	if m.filtering {
 		b.WriteString(helpStyle.Render(fmt.Sprintf("  filter: %s█  (enter apply  esc clear)", m.filter)))
 	} else {
-		help := "  q quit  p pause  r resync  ↑↓ scroll  l logs  / filter"
+		help := "  q quit  p pause  r resync  ↑↓ navigate  enter expand  l logs  / filter"
 		if m.filter != "" {
 			help += fmt.Sprintf("  [filter: %s]", m.filter)
 		}
@@ -256,21 +306,34 @@ func (m DashboardModel) statusDisplay() (string, string) {
 }
 
 // renderEvent formats a single sync event line.
-func (m DashboardModel) renderEvent(evt SyncEvent) string {
+// nameWidth is the column width for the file name.
+func (m DashboardModel) renderEvent(evt SyncEvent, focused bool, nameWidth int) string {
 	ts := dimStyle.Render(evt.Time.Format("15:04:05"))
+	marker := "  "
+	if focused {
+		marker = "> "
+	}
+
 	switch evt.Status {
 	case "synced":
-		name := padRight(abbreviatePath(evt.File, 30), 30)
+		name := padRight(abbreviatePath(evt.File, nameWidth), nameWidth)
+		if focused {
+			name = focusedStyle.Render(name)
+		}
 		detail := ""
 		if evt.Size != "" {
-			detail = dimStyle.Render(fmt.Sprintf("%18s  %s", evt.Size, evt.Duration.Truncate(100*time.Millisecond)))
+			detail = dimStyle.Render(fmt.Sprintf("  %s  %s", evt.Size, evt.Duration.Truncate(100*time.Millisecond)))
 		}
-		return ts + "  " + statusSynced.Render("✓") + " " + name + detail
+		icon := statusSynced.Render("✓")
+		return marker + ts + "  " + icon + " " + name + detail
 	case "error":
-		name := padRight(abbreviatePath(evt.File, 30), 30)
-		return ts + "  " + statusError.Render("✗") + " " + name + statusError.Render("error")
+		name := padRight(abbreviatePath(evt.File, nameWidth), nameWidth)
+		if focused {
+			name = focusedStyle.Render(name)
+		}
+		return marker + ts + "  " + statusError.Render("✗") + " " + name + statusError.Render("error")
 	default:
-		return ts + "  " + evt.File
+		return marker + ts + "  " + evt.File
 	}
 }
 
@@ -287,6 +350,107 @@ func (m DashboardModel) filteredEvents() []SyncEvent {
 		}
 	}
 	return out
+}
+
+// nameWidth returns the dynamic width for the file name column.
+// Reserves space for: marker(2) + timestamp(8) + gap(2) + icon(1) + gap(1) +
+// [name] + gap(2) + size/duration(~30) = ~46 fixed chars.
+func (m DashboardModel) nameWidth() int {
+	w := m.width - 46
+	if w < 30 {
+		w = 30
+	}
+	if w > 60 {
+		w = 60
+	}
+	return w
+}
+
+// unfilteredIndex returns the index in m.events corresponding to the i-th
+// item in the filtered event list, or -1 if out of range.
+func (m DashboardModel) unfilteredIndex(filteredIdx int) int {
+	if m.filter == "" {
+		return filteredIdx
+	}
+	lf := strings.ToLower(m.filter)
+	count := 0
+	for i, evt := range m.events {
+		if strings.Contains(strings.ToLower(evt.File), lf) {
+			if count == filteredIdx {
+				return i
+			}
+			count++
+		}
+	}
+	return -1
+}
+
+// ensureCursorVisible adjusts offset so the cursor row is within the viewport.
+func (m *DashboardModel) ensureCursorVisible() {
+	vh := m.eventViewHeight()
+
+	// Scroll up if cursor is above viewport
+	if m.cursor < m.offset {
+		m.offset = m.cursor
+		return
+	}
+
+	// Count visible lines from offset to cursor (inclusive),
+	// including expanded children.
+	filtered := m.filteredEvents()
+	lines := 0
+	for i := m.offset; i <= m.cursor && i < len(filtered); i++ {
+		lines++ // the event row itself
+		idx := m.unfilteredIndex(i)
+		if idx >= 0 && m.expanded[idx] {
+			childCount := len(filtered[i].Files)
+			if childCount > maxExpandedFiles {
+				childCount = maxExpandedFiles + 1 // +1 for the "+N more" line
+			}
+			lines += childCount
+		}
+	}
+
+	// Scroll down if cursor line is beyond viewport
+	for lines > vh && m.offset < m.cursor {
+		// Subtract lines for the row we scroll past
+		lines-- // the event row
+		idx := m.unfilteredIndex(m.offset)
+		if idx >= 0 && m.expanded[idx] {
+			childCount := len(filtered[m.offset].Files)
+			if childCount > maxExpandedFiles {
+				childCount = maxExpandedFiles + 1
+			}
+			lines -= childCount
+		}
+		m.offset++
+	}
+}
+
+// maxExpandedFiles is the maximum number of child files shown when expanded.
+const maxExpandedFiles = 10
+
+// renderChildren renders the expanded file list for a directory group.
+// Shows at most maxExpandedFiles entries, with a "+N more" line if truncated.
+func (m DashboardModel) renderChildren(files []string, nameWidth int) []string {
+	// Prefix aligns under the parent name column:
+	// marker(2) + timestamp(8) + gap(2) + icon(1) + gap(1) = 14 chars
+	prefix := strings.Repeat(" ", 14)
+	show := files
+	truncated := 0
+	if len(files) > maxExpandedFiles {
+		show = files[:maxExpandedFiles]
+		truncated = len(files) - maxExpandedFiles
+	}
+	var lines []string
+	for _, f := range show {
+		name := abbreviatePath(f, nameWidth-2)
+		lines = append(lines, prefix+"└ "+dimStyle.Render(name))
+	}
+	if truncated > 0 {
+		lines = append(lines, prefix+dimStyle.Render(fmt.Sprintf("  +%d more", truncated)))
+	}
+	return lines
 }
 
 // abbreviatePath shortens a file path to fit within maxLen by replacing

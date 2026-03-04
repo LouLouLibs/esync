@@ -15,4 +15,5 @@ var (
 	statusError   = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	helpStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	focusedStyle  = lipgloss.NewStyle().Bold(true)
 )
