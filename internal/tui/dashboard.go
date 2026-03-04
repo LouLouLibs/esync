@@ -29,6 +29,7 @@ type SyncEvent struct {
 	Duration time.Duration
 	Status   string // "synced", "syncing", "error"
 	Time     time.Time
+	Files    []string // individual file paths for directory groups
 }
 
 // DashboardModel is the main TUI view showing sync status and recent events.
