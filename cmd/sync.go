@@ -240,6 +240,7 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 				Duration: result.Duration,
 				Status:   "synced",
 				Time:     now,
+				Files:    g.files,
 			}
 		}
 
@@ -401,9 +402,10 @@ func formatSize(bytes int64) string {
 
 // groupedEvent represents a top-level directory or root file for the TUI.
 type groupedEvent struct {
-	name  string // "cmd/" or "main.go"
-	count int    // number of files (1 for root files)
-	bytes int64  // total bytes
+	name  string   // "cmd/" or "main.go"
+	count int      // number of files (1 for root files)
+	bytes int64    // total bytes
+	files []string // individual file paths within the group
 }
 
 // groupFilesByTopLevel collapses file entries into top-level directories
@@ -430,8 +432,14 @@ func groupFilesByTopLevel(files []syncer.FileEntry) []groupedEvent {
 			if g, ok := dirMap[dir]; ok {
 				g.count++
 				g.bytes += f.Bytes
+				g.files = append(g.files, f.Name)
 			} else {
-				dirMap[dir] = &groupedEvent{name: dir, count: 1, bytes: f.Bytes}
+				dirMap[dir] = &groupedEvent{
+					name:  dir,
+					count: 1,
+					bytes: f.Bytes,
+					files: []string{f.Name},
+				}
 				dirFirstFile[dir] = f.Name
 				dirOrder = append(dirOrder, dir)
 			}
@@ -443,6 +451,7 @@ func groupFilesByTopLevel(files []syncer.FileEntry) []groupedEvent {
 		g := *dirMap[dir]
 		if g.count == 1 {
 			g.name = dirFirstFile[dir]
+			g.files = nil
 		}
 		out = append(out, g)
 	}
