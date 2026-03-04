@@ -44,6 +44,8 @@ type DashboardModel struct {
 	filter        string
 	filtering     bool
 	offset        int
+	cursor        int          // index into filtered events
+	expanded      map[int]bool // keyed by index in unfiltered events slice
 }
 
 // ---------------------------------------------------------------------------
@@ -54,9 +56,10 @@ type DashboardModel struct {
 // remote paths.
 func NewDashboard(local, remote string) DashboardModel {
 	return DashboardModel{
-		local:  local,
-		remote: remote,
-		status: "watching",
+		local:    local,
+		remote:   remote,
+		status:   "watching",
+		expanded: make(map[int]bool),
 	}
 }
 
