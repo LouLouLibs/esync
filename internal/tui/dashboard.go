@@ -29,7 +29,8 @@ type SyncEvent struct {
 	Duration time.Duration
 	Status   string // "synced", "syncing", "error"
 	Time     time.Time
-	Files    []string // individual file paths for directory groups
+	Files      []string // individual file paths for directory groups (max 10)
+	FileCount  int      // total file count in group (may exceed len(Files))
 }
 
 // DashboardModel is the main TUI view showing sync status and recent events.
@@ -246,7 +247,7 @@ func (m DashboardModel) View() string {
 		// Render expanded children
 		idx := m.unfilteredIndex(i)
 		if idx >= 0 && m.expanded[idx] && len(filtered[i].Files) > 0 {
-			children := m.renderChildren(filtered[i].Files, nw)
+			children := m.renderChildren(filtered[i].Files, filtered[i].FileCount, nw)
 			for _, child := range children {
 				if linesRendered >= vh {
 					break
@@ -403,11 +404,7 @@ func (m *DashboardModel) ensureCursorVisible() {
 		lines++ // the event row itself
 		idx := m.unfilteredIndex(i)
 		if idx >= 0 && m.expanded[idx] {
-			childCount := len(filtered[i].Files)
-			if childCount > maxExpandedFiles {
-				childCount = maxExpandedFiles + 1 // +1 for the "+N more" line
-			}
-			lines += childCount
+			lines += expandedLineCount(filtered[i])
 		}
 	}
 
@@ -417,38 +414,35 @@ func (m *DashboardModel) ensureCursorVisible() {
 		lines-- // the event row
 		idx := m.unfilteredIndex(m.offset)
 		if idx >= 0 && m.expanded[idx] {
-			childCount := len(filtered[m.offset].Files)
-			if childCount > maxExpandedFiles {
-				childCount = maxExpandedFiles + 1
-			}
-			lines -= childCount
+			lines -= expandedLineCount(filtered[m.offset])
 		}
 		m.offset++
 	}
 }
 
-// maxExpandedFiles is the maximum number of child files shown when expanded.
-const maxExpandedFiles = 10
+// expandedLineCount returns the number of child lines rendered for an event:
+// one per stored file, plus a "+N more" line if FileCount exceeds len(Files).
+func expandedLineCount(evt SyncEvent) int {
+	n := len(evt.Files)
+	if evt.FileCount > n {
+		n++ // the "+N more" line
+	}
+	return n
+}
 
 // renderChildren renders the expanded file list for a directory group.
-// Shows at most maxExpandedFiles entries, with a "+N more" line if truncated.
-func (m DashboardModel) renderChildren(files []string, nameWidth int) []string {
+// totalCount is the original number of files in the group (may exceed len(files)).
+func (m DashboardModel) renderChildren(files []string, totalCount int, nameWidth int) []string {
 	// Prefix aligns under the parent name column:
 	// marker(2) + timestamp(8) + gap(2) + icon(1) + gap(1) = 14 chars
 	prefix := strings.Repeat(" ", 14)
-	show := files
-	truncated := 0
-	if len(files) > maxExpandedFiles {
-		show = files[:maxExpandedFiles]
-		truncated = len(files) - maxExpandedFiles
-	}
 	var lines []string
-	for _, f := range show {
+	for _, f := range files {
 		name := abbreviatePath(f, nameWidth-2)
 		lines = append(lines, prefix+"└ "+dimStyle.Render(name))
 	}
-	if truncated > 0 {
-		lines = append(lines, prefix+dimStyle.Render(fmt.Sprintf("  +%d more", truncated)))
+	if remaining := totalCount - len(files); remaining > 0 {
+		lines = append(lines, prefix+dimStyle.Render(fmt.Sprintf("  +%d more", remaining)))
 	}
 	return lines
 }

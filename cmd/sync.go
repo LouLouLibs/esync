@@ -235,12 +235,13 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 				size = fmt.Sprintf("%d files  %s", g.count, formatSize(bytes))
 			}
 			syncCh <- tui.SyncEvent{
-				File:     file,
-				Size:     size,
-				Duration: result.Duration,
-				Status:   "synced",
-				Time:     now,
-				Files:    g.files,
+				File:      file,
+				Size:      size,
+				Duration:  result.Duration,
+				Status:    "synced",
+				Time:      now,
+				Files:     truncateFiles(g.files, 10),
+				FileCount: g.count,
 			}
 		}
 
@@ -457,4 +458,12 @@ func groupFilesByTopLevel(files []syncer.FileEntry) []groupedEvent {
 	}
 	out = append(out, rootFiles...)
 	return out
+}
+
+// truncateFiles returns at most n elements from files.
+func truncateFiles(files []string, n int) []string {
+	if len(files) <= n {
+		return files
+	}
+	return files[:n]
 }
