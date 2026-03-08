@@ -357,6 +357,17 @@ func TestBuildCommand_IncludePatterns(t *testing.T) {
 	if lastInclude >= catchAllExclude {
 		t.Errorf("--include rules must come before --exclude=* catch-all")
 	}
+
+	// Verify named excludes come before catch-all
+	gitExclude := -1
+	for i, a := range cmd {
+		if a == "--exclude=.git" {
+			gitExclude = i
+		}
+	}
+	if gitExclude >= catchAllExclude {
+		t.Errorf("--exclude=.git must come before --exclude=* catch-all")
+	}
 }
 
 // ---------------------------------------------------------------------------
