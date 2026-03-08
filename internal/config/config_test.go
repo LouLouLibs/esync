@@ -403,6 +403,10 @@ func TestDefaultTOML(t *testing.T) {
 			t.Errorf("DefaultTOML() missing section %q", section)
 		}
 	}
+	// Should document include field
+	if !containsString(toml, "include") {
+		t.Error("DefaultTOML() missing include field")
+	}
 }
 
 func containsString(s, substr string) bool {
