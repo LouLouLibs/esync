@@ -310,6 +310,81 @@ func TestBuildDestination_SSHWithoutUser(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// 8. TestBuildCommand_IncludePatterns — verify include/exclude filter rules
+// ---------------------------------------------------------------------------
+func TestBuildCommand_IncludePatterns(t *testing.T) {
+	cfg := minimalConfig("/src", "/dst")
+	cfg.Settings.Include = []string{"src", "docs/api"}
+	cfg.Settings.Ignore = []string{".git"}
+
+	s := New(cfg)
+	cmd := s.BuildCommand()
+
+	// Should have include rules for parent dirs, subtrees, then excludes, then catch-all
+	if !containsArg(cmd, "--include=src/") {
+		t.Errorf("missing --include=src/ in %v", cmd)
+	}
+	if !containsArg(cmd, "--include=src/**") {
+		t.Errorf("missing --include=src/** in %v", cmd)
+	}
+	if !containsArg(cmd, "--include=docs/") {
+		t.Errorf("missing --include=docs/ in %v", cmd)
+	}
+	if !containsArg(cmd, "--include=docs/api/") {
+		t.Errorf("missing --include=docs/api/ in %v", cmd)
+	}
+	if !containsArg(cmd, "--include=docs/api/**") {
+		t.Errorf("missing --include=docs/api/** in %v", cmd)
+	}
+	if !containsArg(cmd, "--exclude=.git") {
+		t.Errorf("missing --exclude=.git in %v", cmd)
+	}
+	if !containsArg(cmd, "--exclude=*") {
+		t.Errorf("missing --exclude=* catch-all in %v", cmd)
+	}
+
+	// Verify ordering: all --include before --exclude=*
+	lastInclude := -1
+	catchAllExclude := -1
+	for i, a := range cmd {
+		if strings.HasPrefix(a, "--include=") {
+			lastInclude = i
+		}
+		if a == "--exclude=*" {
+			catchAllExclude = i
+		}
+	}
+	if lastInclude >= catchAllExclude {
+		t.Errorf("--include rules must come before --exclude=* catch-all")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 9. TestBuildCommand_NoIncludeMeansNoFilterRules — no include = no catch-all
+// ---------------------------------------------------------------------------
+func TestBuildCommand_NoIncludeMeansNoFilterRules(t *testing.T) {
+	cfg := minimalConfig("/src", "/dst")
+	cfg.Settings.Ignore = []string{".git"}
+
+	s := New(cfg)
+	cmd := s.BuildCommand()
+
+	// Should NOT have --include or --exclude=* catch-all
+	for _, a := range cmd {
+		if strings.HasPrefix(a, "--include=") {
+			t.Errorf("unexpected --include in %v", cmd)
+		}
+	}
+	if containsArg(cmd, "--exclude=*") {
+		t.Errorf("unexpected --exclude=* catch-all in %v", cmd)
+	}
+	// Regular excludes still present
+	if !containsArg(cmd, "--exclude=.git") {
+		t.Errorf("missing --exclude=.git in %v", cmd)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 

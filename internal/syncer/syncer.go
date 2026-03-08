@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -153,10 +154,40 @@ func (s *Syncer) BuildCommand() []string {
 		args = append(args, "--dry-run")
 	}
 
-	// Exclude patterns (strip **/ prefix)
-	for _, pattern := range s.cfg.AllIgnorePatterns() {
-		cleaned := strings.TrimPrefix(pattern, "**/")
-		args = append(args, "--exclude="+cleaned)
+	// Include/exclude filter rules
+	if len(s.cfg.Settings.Include) > 0 {
+		// Emit include rules: ancestor dirs + subtree for each prefix
+		seen := make(map[string]bool)
+		for _, inc := range s.cfg.Settings.Include {
+			inc = filepath.Clean(inc)
+			// Add ancestor directories (e.g. "docs/api" needs "docs/")
+			parts := strings.Split(inc, string(filepath.Separator))
+			for i := 1; i < len(parts); i++ {
+				ancestor := strings.Join(parts[:i], "/") + "/"
+				if !seen[ancestor] {
+					args = append(args, "--include="+ancestor)
+					seen[ancestor] = true
+				}
+			}
+			// Add the prefix dir and everything underneath
+			args = append(args, "--include="+inc+"/")
+			args = append(args, "--include="+inc+"/**")
+		}
+
+		// Exclude patterns from ignore lists (applied within included paths)
+		for _, pattern := range s.cfg.AllIgnorePatterns() {
+			cleaned := strings.TrimPrefix(pattern, "**/")
+			args = append(args, "--exclude="+cleaned)
+		}
+
+		// Catch-all exclude: block everything not explicitly included
+		args = append(args, "--exclude=*")
+	} else {
+		// No include filter — just exclude patterns as before
+		for _, pattern := range s.cfg.AllIgnorePatterns() {
+			cleaned := strings.TrimPrefix(pattern, "**/")
+			args = append(args, "--exclude="+cleaned)
+		}
 	}
 
 	// Extra args passthrough
