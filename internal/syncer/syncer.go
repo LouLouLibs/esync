@@ -169,7 +169,8 @@ func (s *Syncer) BuildCommand() []string {
 					seen[ancestor] = true
 				}
 			}
-			// Add the prefix dir and everything underneath
+			// Include as both file and directory (we don't know which it is)
+			args = append(args, "--include="+inc)
 			args = append(args, "--include="+inc+"/")
 			args = append(args, "--include="+inc+"/**")
 		}

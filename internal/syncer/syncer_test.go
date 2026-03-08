@@ -320,21 +320,20 @@ func TestBuildCommand_IncludePatterns(t *testing.T) {
 	s := New(cfg)
 	cmd := s.BuildCommand()
 
-	// Should have include rules for parent dirs, subtrees, then excludes, then catch-all
-	if !containsArg(cmd, "--include=src/") {
-		t.Errorf("missing --include=src/ in %v", cmd)
-	}
-	if !containsArg(cmd, "--include=src/**") {
-		t.Errorf("missing --include=src/** in %v", cmd)
-	}
-	if !containsArg(cmd, "--include=docs/") {
-		t.Errorf("missing --include=docs/ in %v", cmd)
-	}
-	if !containsArg(cmd, "--include=docs/api/") {
-		t.Errorf("missing --include=docs/api/ in %v", cmd)
-	}
-	if !containsArg(cmd, "--include=docs/api/**") {
-		t.Errorf("missing --include=docs/api/** in %v", cmd)
+	// Should have include rules: file match, dir match, subtree for each prefix
+	// Plus ancestor dirs for nested paths
+	for _, expected := range []string{
+		"--include=src",    // file match
+		"--include=src/",   // dir match
+		"--include=src/**", // subtree
+		"--include=docs/",     // ancestor dir
+		"--include=docs/api",  // file match
+		"--include=docs/api/", // dir match
+		"--include=docs/api/**", // subtree
+	} {
+		if !containsArg(cmd, expected) {
+			t.Errorf("missing %s in %v", expected, cmd)
+		}
 	}
 	if !containsArg(cmd, "--exclude=.git") {
 		t.Errorf("missing --exclude=.git in %v", cmd)
@@ -392,6 +391,29 @@ func TestBuildCommand_NoIncludeMeansNoFilterRules(t *testing.T) {
 	// Regular excludes still present
 	if !containsArg(cmd, "--exclude=.git") {
 		t.Errorf("missing --exclude=.git in %v", cmd)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 10. TestBuildCommand_IncludeFiles — individual files in include list
+// ---------------------------------------------------------------------------
+func TestBuildCommand_IncludeFiles(t *testing.T) {
+	cfg := minimalConfig("/src", "/dst")
+	cfg.Settings.Include = []string{"readme.md", "Snakefile"}
+
+	s := New(cfg)
+	cmd := s.BuildCommand()
+
+	// Individual files get a bare --include (no trailing /)
+	if !containsArg(cmd, "--include=readme.md") {
+		t.Errorf("missing --include=readme.md in %v", cmd)
+	}
+	if !containsArg(cmd, "--include=Snakefile") {
+		t.Errorf("missing --include=Snakefile in %v", cmd)
+	}
+	// Catch-all must be present
+	if !containsArg(cmd, "--exclude=*") {
+		t.Errorf("missing --exclude=* catch-all in %v", cmd)
 	}
 }
 

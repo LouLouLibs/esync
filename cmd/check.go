@@ -83,6 +83,7 @@ type fileEntry struct {
 func printPreview(cfg *config.Config) error {
 	localDir := cfg.Sync.Local
 	patterns := cfg.AllIgnorePatterns()
+	includes := cfg.Settings.Include
 
 	var included []fileEntry
 	var excluded []fileEntry
@@ -112,6 +113,14 @@ func printPreview(cfg *config.Config) error {
 				}
 				return nil
 			}
+		}
+
+		// Check against include patterns (if any)
+		if len(includes) > 0 && !matchesInclude(rel, includes) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 
 		if !info.IsDir() {
@@ -171,6 +180,28 @@ func printPreview(cfg *config.Config) error {
 // ---------------------------------------------------------------------------
 // Pattern matching
 // ---------------------------------------------------------------------------
+
+// matchesInclude checks whether a relative path falls under any include prefix.
+// A path is included if it equals a prefix, is inside a prefix, or is an
+// ancestor directory needed to reach a prefix.
+func matchesInclude(rel string, includes []string) bool {
+	for _, inc := range includes {
+		inc = filepath.Clean(inc)
+		// Exact match (file or dir)
+		if rel == inc {
+			return true
+		}
+		// Path is inside the included prefix
+		if strings.HasPrefix(rel, inc+string(filepath.Separator)) {
+			return true
+		}
+		// Path is an ancestor of the included prefix
+		if strings.HasPrefix(inc, rel+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
 
 // matchesIgnorePattern checks whether a file (given its relative path and
 // file info) matches a single ignore pattern. It handles bracket/quote
