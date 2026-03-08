@@ -264,6 +264,7 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 		cfg.Sync.Local,
 		cfg.Settings.WatcherDebounce,
 		cfg.AllIgnorePatterns(),
+		cfg.Settings.Include,
 		handler,
 	)
 	if err != nil {
@@ -360,6 +361,7 @@ func runDaemon(cfg *config.Config, s *syncer.Syncer) error {
 		cfg.Sync.Local,
 		cfg.Settings.WatcherDebounce,
 		cfg.AllIgnorePatterns(),
+		cfg.Settings.Include,
 		handler,
 	)
 	if err != nil {

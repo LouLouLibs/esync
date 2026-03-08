@@ -109,7 +109,7 @@ func TestWatcherTriggersSync(t *testing.T) {
 	}
 
 	// Use short debounce (100ms) for fast tests
-	w, err := watcher.New(src, 100, nil, handler)
+	w, err := watcher.New(src, 100, nil, nil, handler)
 	if err != nil {
 		t.Fatalf("watcher.New() failed: %v", err)
 	}
