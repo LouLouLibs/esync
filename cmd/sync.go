@@ -231,9 +231,6 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 				bytes = result.BytesTotal * int64(g.count) / int64(totalGroupFiles)
 			}
 			size := formatSize(bytes)
-			if g.count > 1 {
-				size = fmt.Sprintf("%d files  %s", g.count, formatSize(bytes))
-			}
 			syncCh <- tui.SyncEvent{
 				File:      file,
 				Size:      size,

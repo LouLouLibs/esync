@@ -323,7 +323,12 @@ func (m DashboardModel) renderEvent(evt SyncEvent, focused bool, nameWidth int) 
 		}
 		detail := ""
 		if evt.Size != "" {
-			detail = dimStyle.Render(fmt.Sprintf("  %s  %s", evt.Size, evt.Duration.Truncate(100*time.Millisecond)))
+			dur := fmt.Sprintf("%s", evt.Duration.Truncate(100*time.Millisecond))
+			count := ""
+			if evt.FileCount > 1 {
+				count = fmt.Sprintf("%d files", evt.FileCount)
+			}
+			detail = dimStyle.Render(fmt.Sprintf("%8s  %7s  %5s", count, evt.Size, dur))
 		}
 		icon := statusSynced.Render("✓")
 		return marker + ts + "  " + icon + " " + name + detail
