@@ -110,3 +110,58 @@ func TestShouldIgnore(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 5. TestShouldInclude — verify include prefix matching
+// ---------------------------------------------------------------------------
+func TestShouldInclude(t *testing.T) {
+	w := &Watcher{
+		rootPath: "/project",
+		includes: []string{"src", "docs/api"},
+	}
+
+	tests := []struct {
+		path   string
+		expect bool
+	}{
+		{"/project/src/main.go", true},
+		{"/project/src/pkg/util.go", true},
+		{"/project/docs/api/readme.md", true},
+		{"/project/docs", true},           // ancestor of docs/api
+		{"/project/tmp/cache.bin", false},
+		{"/project/build/out.o", false},
+		{"/project", true},                // root always included
+	}
+
+	for _, tt := range tests {
+		got := w.shouldInclude(tt.path)
+		if got != tt.expect {
+			t.Errorf("shouldInclude(%q) = %v, want %v", tt.path, got, tt.expect)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 6. TestShouldIncludeEmptyMeansAll — empty includes means include everything
+// ---------------------------------------------------------------------------
+func TestShouldIncludeEmptyMeansAll(t *testing.T) {
+	w := &Watcher{
+		rootPath: "/project",
+		includes: nil,
+	}
+
+	tests := []struct {
+		path   string
+		expect bool
+	}{
+		{"/project/anything/at/all.go", true},
+		{"/project/tmp/cache.bin", true},
+	}
+
+	for _, tt := range tests {
+		got := w.shouldInclude(tt.path)
+		if got != tt.expect {
+			t.Errorf("shouldInclude(%q) = %v, want %v", tt.path, got, tt.expect)
+		}
+	}
+}

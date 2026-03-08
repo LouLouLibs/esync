@@ -5,6 +5,7 @@ package watcher
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -89,7 +90,9 @@ type Watcher struct {
 	fsw       *fsnotify.Watcher
 	debouncer *Debouncer
 	path      string
+	rootPath  string
 	ignores   []string
+	includes  []string
 	done      chan struct{}
 }
 
@@ -97,9 +100,14 @@ type Watcher struct {
 // debounce interval in milliseconds (defaults to 500 if 0). ignores is a
 // list of filepath.Match patterns to skip. handler is called after each
 // debounced event batch.
-func New(path string, debounceMs int, ignores []string, handler EventHandler) (*Watcher, error) {
+func New(path string, debounceMs int, ignores []string, includes []string, handler EventHandler) (*Watcher, error) {
 	if debounceMs <= 0 {
 		debounceMs = 500
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		absPath = path
 	}
 
 	fsw, err := fsnotify.NewWatcher()
@@ -108,10 +116,12 @@ func New(path string, debounceMs int, ignores []string, handler EventHandler) (*
 	}
 
 	w := &Watcher{
-		fsw:     fsw,
-		path:    path,
-		ignores: ignores,
-		done:    make(chan struct{}),
+		fsw:      fsw,
+		path:     path,
+		rootPath: absPath,
+		ignores:  ignores,
+		includes: includes,
+		done:     make(chan struct{}),
 	}
 
 	w.debouncer = NewDebouncer(time.Duration(debounceMs)*time.Millisecond, handler)
@@ -162,6 +172,10 @@ func (w *Watcher) eventLoop() {
 				continue
 			}
 
+			if !w.shouldInclude(event.Name) {
+				continue
+			}
+
 			// If a new directory was created, watch it recursively
 			if event.Op&fsnotify.Create != 0 {
 				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
@@ -199,6 +213,39 @@ func (w *Watcher) shouldIgnore(path string) bool {
 	return false
 }
 
+// shouldInclude checks whether path falls within one of the configured include
+// prefixes. If no includes are configured, every path is included. The method
+// also returns true for ancestor directories of an include prefix (needed for
+// traversal) and for the root path itself.
+func (w *Watcher) shouldInclude(path string) bool {
+	if len(w.includes) == 0 {
+		return true
+	}
+
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+
+	rel, err := filepath.Rel(w.rootPath, abs)
+	if err != nil || rel == "." {
+		return true
+	}
+
+	for _, inc := range w.includes {
+		incClean := filepath.Clean(inc)
+		// Path is the include prefix itself or is inside it
+		if rel == incClean || strings.HasPrefix(rel, incClean+string(filepath.Separator)) {
+			return true
+		}
+		// Path is an ancestor directory needed to reach the include prefix
+		if strings.HasPrefix(incClean, rel+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
 // addRecursive walks the directory tree rooted at path and adds every
 // directory to the fsnotify watcher. Individual files are not added
 // because fsnotify watches directories for events on their contents.
@@ -209,6 +256,13 @@ func (w *Watcher) addRecursive(path string) error {
 		}
 
 		if w.shouldIgnore(p) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if !w.shouldInclude(p) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
