@@ -341,7 +341,56 @@ func TestAllIgnorePatternsEmpty(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------
-// 8. TestDefaultTOML — returns a non-empty template
+// 8. TestLoadConfigWithInclude — include field parsed correctly
+// -----------------------------------------------------------------------
+func TestLoadConfigWithInclude(t *testing.T) {
+	toml := `
+[sync]
+local  = "/src"
+remote = "/dst"
+
+[settings]
+include = ["src", "docs/api"]
+ignore  = [".git"]
+`
+	path := writeTempTOML(t, toml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if len(cfg.Settings.Include) != 2 {
+		t.Fatalf("Settings.Include length = %d, want 2", len(cfg.Settings.Include))
+	}
+	if cfg.Settings.Include[0] != "src" || cfg.Settings.Include[1] != "docs/api" {
+		t.Errorf("Settings.Include = %v, want [src docs/api]", cfg.Settings.Include)
+	}
+}
+
+// -----------------------------------------------------------------------
+// 9. TestLoadConfigIncludeDefaultsToEmpty — omitted include is nil/empty
+// -----------------------------------------------------------------------
+func TestLoadConfigIncludeDefaultsToEmpty(t *testing.T) {
+	toml := `
+[sync]
+local  = "/src"
+remote = "/dst"
+`
+	path := writeTempTOML(t, toml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if cfg.Settings.Include == nil {
+		// nil is fine — treated as "include everything"
+	} else if len(cfg.Settings.Include) != 0 {
+		t.Errorf("Settings.Include = %v, want empty", cfg.Settings.Include)
+	}
+}
+
+// -----------------------------------------------------------------------
+// 10. TestDefaultTOML — returns a non-empty template
 // -----------------------------------------------------------------------
 func TestDefaultTOML(t *testing.T) {
 	toml := DefaultTOML()

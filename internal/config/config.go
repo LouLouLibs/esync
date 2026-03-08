@@ -54,6 +54,7 @@ type LogSettings struct {
 type Settings struct {
 	WatcherDebounce int           `mapstructure:"watcher_debounce"`
 	InitialSync     bool          `mapstructure:"initial_sync"`
+	Include         []string      `mapstructure:"include"`
 	Ignore          []string      `mapstructure:"ignore"`
 	Rsync           RsyncSettings `mapstructure:"rsync"`
 	Log             LogSettings   `mapstructure:"log"`
@@ -198,6 +199,9 @@ interval = 1
 [settings]
 watcher_debounce = 500
 initial_sync     = false
+# include: path prefixes to sync (relative to local). Empty means everything.
+# Keep include simple and explicit; use ignore for fine-grained filtering.
+include          = []
 ignore           = [".git", "node_modules", ".DS_Store"]
 
 [settings.rsync]
