@@ -177,6 +177,10 @@ watcher_debounce = 500
 # Run a full sync when esync starts (default: false)
 initial_sync = false
 
+# Path prefixes to sync, relative to local. Empty means everything.
+# Keep include simple and explicit; use ignore for fine-grained filtering.
+include = []
+
 # Patterns to ignore — applied to both the watcher and rsync --exclude flags.
 # Supports glob patterns. Matched against file/directory base names.
 ignore = [
@@ -282,6 +286,25 @@ extra_args = [
     "--bwlimit=5000",     # bandwidth limit in KBytes/sec
 ]
 ```
+
+### Include Filters (Monorepo Support)
+
+In a large repo, you may only want to sync specific subtrees. Use `include` to name the directories you care about, then use `ignore` for fine-grained filtering within them:
+
+```toml
+[sync]
+local  = "/home/user/monorepo"
+remote = "server:/opt/monorepo"
+
+[settings]
+include = ["src", "docs/api"]
+ignore  = [".git", "node_modules", ".DS_Store"]
+```
+
+- `include` takes path prefixes relative to `local` (not globs)
+- Empty `include` (the default) means sync everything — fully backwards compatible
+- When set, only files under the listed prefixes are watched and synced
+- `ignore` then further refines within the included paths
 
 ### Separate Watcher and Rsync Ignore Patterns
 
