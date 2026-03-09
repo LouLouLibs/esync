@@ -367,11 +367,19 @@ func (m DashboardModel) View() string {
 	if m.filtering {
 		b.WriteString(helpStyle.Render(fmt.Sprintf("  filter: %s█  (enter apply  esc clear)", m.filter)))
 	} else {
-		help := "  q quit  p pause  r resync  ↑↓ navigate  enter expand  v view  l logs  / filter"
+		help := "  " +
+			helpKey("q") + helpDesc("quit") +
+			helpKey("p") + helpDesc("pause") +
+			helpKey("r") + helpDesc("resync") +
+			helpKey("↑↓") + helpDesc("navigate") +
+			helpKey("enter") + helpDesc("expand") +
+			helpKey("v") + helpDesc("view") +
+			helpKey("l") + helpDesc("logs") +
+			helpKey("/") + helpDesc("filter")
 		if m.filter != "" {
-			help += fmt.Sprintf("  [filter: %s]", m.filter)
+			help += dimStyle.Render(fmt.Sprintf("  [filter: %s]", m.filter))
 		}
-		b.WriteString(helpStyle.Render(help))
+		b.WriteString(help)
 	}
 	b.WriteString("\n")
 
@@ -580,6 +588,12 @@ func abbreviatePath(p string, maxLen int) string {
 	}
 	return strings.Join(parts, "/")
 }
+
+// helpKey renders a keyboard shortcut key in normal (bright) style.
+func helpKey(k string) string { return helpKeyStyle.Render(k) + " " }
+
+// helpDesc renders a shortcut description in dim style with spacing.
+func helpDesc(d string) string { return dimStyle.Render(d) + "  " }
 
 // padRight pads s with spaces to width n, truncating if necessary.
 func padRight(s string, n int) string {
