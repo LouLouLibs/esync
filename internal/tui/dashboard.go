@@ -338,7 +338,11 @@ func (m DashboardModel) View() string {
 		// Render expanded children
 		idx := m.unfilteredIndex(i)
 		if idx >= 0 && m.expanded[idx] && len(filtered[i].Files) > 0 {
-			children := m.renderChildren(filtered[i].Files, filtered[i].FileCount, nw)
+			focusedChild := -1
+			if i == m.cursor {
+				focusedChild = m.childCursor
+			}
+			children := m.renderChildren(filtered[i].Files, filtered[i].FileCount, nw, focusedChild)
 			for _, child := range children {
 				if linesRendered >= vh {
 					break
@@ -528,14 +532,19 @@ func expandedLineCount(evt SyncEvent) int {
 
 // renderChildren renders the expanded file list for a directory group.
 // totalCount is the original number of files in the group (may exceed len(files)).
-func (m DashboardModel) renderChildren(files []string, totalCount int, nameWidth int) []string {
+// focusedChild is the index of the focused child (-1 if none).
+func (m DashboardModel) renderChildren(files []string, totalCount int, nameWidth int, focusedChild int) []string {
 	// Prefix aligns under the parent name column:
 	// marker(2) + timestamp(8) + gap(2) + icon(1) + gap(1) = 14 chars
 	prefix := strings.Repeat(" ", 14)
 	var lines []string
-	for _, f := range files {
+	for i, f := range files {
 		name := abbreviatePath(f, nameWidth-2)
-		lines = append(lines, prefix+"└ "+dimStyle.Render(name))
+		if i == focusedChild {
+			lines = append(lines, prefix+"> "+focusedStyle.Render(name))
+		} else {
+			lines = append(lines, prefix+"  "+dimStyle.Render(name))
+		}
 	}
 	if remaining := totalCount - len(files); remaining > 0 {
 		lines = append(lines, prefix+dimStyle.Render(fmt.Sprintf("  +%d more", remaining)))
