@@ -16,4 +16,5 @@ var (
 	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	helpStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	focusedStyle  = lipgloss.NewStyle().Bold(true)
+	helpKeyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("7")).Bold(true)
 )
