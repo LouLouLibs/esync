@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -180,6 +181,32 @@ func (m DashboardModel) updateNormal(msg tea.KeyMsg) (DashboardModel, tea.Cmd) {
 				delete(m.expanded, idx)
 			}
 		}
+	case "v":
+		if m.cursor >= len(filtered) {
+			break
+		}
+		evt := filtered[m.cursor]
+		idx := m.unfilteredIndex(m.cursor)
+
+		// On a child file — open it
+		if m.childCursor >= 0 && m.childCursor < len(evt.Files) {
+			path := filepath.Join(m.local, evt.Files[m.childCursor])
+			return m, func() tea.Msg { return OpenFileMsg{Path: path} }
+		}
+
+		// On a parent with children — expand (same as enter)
+		if len(evt.Files) > 0 {
+			if idx >= 0 && !m.expanded[idx] {
+				m.expanded[idx] = true
+				return m, nil
+			}
+			// Already expanded but cursor on parent — do nothing
+			return m, nil
+		}
+
+		// Single-file event — open it
+		path := filepath.Join(m.local, evt.File)
+		return m, func() tea.Msg { return OpenFileMsg{Path: path} }
 	case "/":
 		m.filtering = true
 		m.filter = ""
