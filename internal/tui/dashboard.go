@@ -366,7 +366,7 @@ func (m DashboardModel) View() string {
 	if m.filtering {
 		b.WriteString(helpStyle.Render(fmt.Sprintf("  filter: %s█  (enter apply  esc clear)", m.filter)))
 	} else {
-		help := "  q quit  p pause  r resync  ↑↓ navigate  enter expand  l logs  / filter"
+		help := "  q quit  p pause  r resync  ↑↓ navigate  enter expand  v view  l logs  / filter"
 		if m.filter != "" {
 			help += fmt.Sprintf("  [filter: %s]", m.filter)
 		}
@@ -504,7 +504,12 @@ func (m *DashboardModel) ensureCursorVisible() {
 		lines++ // the event row itself
 		idx := m.unfilteredIndex(i)
 		if idx >= 0 && m.expanded[idx] {
-			lines += expandedLineCount(filtered[i])
+			if i == m.cursor && m.childCursor >= 0 {
+				// Only count up to the focused child
+				lines += m.childCursor + 1
+			} else {
+				lines += expandedLineCount(filtered[i])
+			}
 		}
 	}
 
