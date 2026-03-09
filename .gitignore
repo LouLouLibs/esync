@@ -22,3 +22,4 @@ test-sync
 tests
 /esync.toml
 sync.log
+.worktrees/
