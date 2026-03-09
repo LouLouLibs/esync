@@ -109,6 +109,7 @@ func (m DashboardModel) Update(msg tea.Msg) (DashboardModel, tea.Cmd) {
 			newExpanded[idx+1] = v
 		}
 		m.expanded = newExpanded
+		m.childCursor = -1
 
 		// Prepend event; cap at 500.
 		m.events = append([]SyncEvent{evt}, m.events...)
