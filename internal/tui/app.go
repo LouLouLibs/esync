@@ -21,6 +21,9 @@ type SyncStatusMsg string
 // ResyncRequestMsg signals that the user pressed 'r' for a full resync.
 type ResyncRequestMsg struct{}
 
+// OpenFileMsg signals that the user wants to open a file in their editor.
+type OpenFileMsg struct{ Path string }
+
 // ---------------------------------------------------------------------------
 // AppModel — root Bubbletea model
 // ---------------------------------------------------------------------------

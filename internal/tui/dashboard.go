@@ -46,6 +46,7 @@ type DashboardModel struct {
 	filtering     bool
 	offset        int
 	cursor        int          // index into filtered events
+	childCursor   int          // -1 = on parent row, >=0 = index into expanded Files
 	expanded      map[int]bool // keyed by index in unfiltered events slice
 }
 
@@ -57,10 +58,11 @@ type DashboardModel struct {
 // remote paths.
 func NewDashboard(local, remote string) DashboardModel {
 	return DashboardModel{
-		local:    local,
-		remote:   remote,
-		status:   "watching",
-		expanded: make(map[int]bool),
+		local:       local,
+		remote:      remote,
+		status:      "watching",
+		childCursor: -1,
+		expanded:    make(map[int]bool),
 	}
 }
 
