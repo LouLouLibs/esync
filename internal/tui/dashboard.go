@@ -141,7 +141,6 @@ func (m DashboardModel) Update(msg tea.Msg) (DashboardModel, tea.Cmd) {
 // updateNormal handles keys when NOT in filtering mode.
 func (m DashboardModel) updateNormal(msg tea.KeyMsg) (DashboardModel, tea.Cmd) {
 	filtered := m.filteredEvents()
-	maxCursor := max(0, len(filtered)-1)
 
 	switch msg.String() {
 	case "q", "ctrl+c":
@@ -155,14 +154,10 @@ func (m DashboardModel) updateNormal(msg tea.KeyMsg) (DashboardModel, tea.Cmd) {
 	case "r":
 		return m, func() tea.Msg { return ResyncRequestMsg{} }
 	case "j", "down":
-		if m.cursor < maxCursor {
-			m.cursor++
-		}
+		m.moveDown(filtered)
 		m.ensureCursorVisible()
 	case "k", "up":
-		if m.cursor > 0 {
-			m.cursor--
-		}
+		m.moveUp(filtered)
 		m.ensureCursorVisible()
 	case "enter", "right":
 		if m.cursor < len(filtered) {
@@ -171,6 +166,7 @@ func (m DashboardModel) updateNormal(msg tea.KeyMsg) (DashboardModel, tea.Cmd) {
 				idx := m.unfilteredIndex(m.cursor)
 				if idx >= 0 {
 					m.expanded[idx] = !m.expanded[idx]
+					m.childCursor = -1
 				}
 			}
 		}
@@ -179,6 +175,7 @@ func (m DashboardModel) updateNormal(msg tea.KeyMsg) (DashboardModel, tea.Cmd) {
 			idx := m.unfilteredIndex(m.cursor)
 			if idx >= 0 {
 				delete(m.expanded, idx)
+				m.childCursor = -1
 			}
 		}
 	case "v":
@@ -212,6 +209,7 @@ func (m DashboardModel) updateNormal(msg tea.KeyMsg) (DashboardModel, tea.Cmd) {
 		m.filter = ""
 		m.cursor = 0
 		m.offset = 0
+		m.childCursor = -1
 	}
 	return m, nil
 }
@@ -234,6 +232,70 @@ func (m DashboardModel) updateFiltering(msg tea.KeyMsg) (DashboardModel, tea.Cmd
 		}
 	}
 	return m, nil
+}
+
+// moveDown advances cursor one visual row, entering expanded children.
+func (m *DashboardModel) moveDown(filtered []SyncEvent) {
+	if m.cursor >= len(filtered) {
+		return
+	}
+	idx := m.unfilteredIndex(m.cursor)
+	evt := filtered[m.cursor]
+
+	// Currently on parent of expanded event — enter children
+	if m.childCursor == -1 && idx >= 0 && m.expanded[idx] && len(evt.Files) > 0 {
+		m.childCursor = 0
+		return
+	}
+
+	// Currently on a child — advance within children
+	if m.childCursor >= 0 {
+		if m.childCursor < len(evt.Files)-1 {
+			m.childCursor++
+			return
+		}
+		// Past last child — move to next event
+		if m.cursor < len(filtered)-1 {
+			m.cursor++
+			m.childCursor = -1
+		}
+		return
+	}
+
+	// Normal: move to next event
+	if m.cursor < len(filtered)-1 {
+		m.cursor++
+		m.childCursor = -1
+	}
+}
+
+// moveUp moves cursor one visual row, entering expanded children from bottom.
+func (m *DashboardModel) moveUp(filtered []SyncEvent) {
+	// Currently on a child — move up within children
+	if m.childCursor > 0 {
+		m.childCursor--
+		return
+	}
+
+	// On first child — move back to parent
+	if m.childCursor == 0 {
+		m.childCursor = -1
+		return
+	}
+
+	// On a parent row — move to previous event
+	if m.cursor <= 0 {
+		return
+	}
+	m.cursor--
+	m.childCursor = -1
+
+	// If previous event is expanded, land on its last child
+	prevIdx := m.unfilteredIndex(m.cursor)
+	prevEvt := filtered[m.cursor]
+	if prevIdx >= 0 && m.expanded[prevIdx] && len(prevEvt.Files) > 0 {
+		m.childCursor = len(prevEvt.Files) - 1
+	}
 }
 
 // eventViewHeight returns the number of event rows that fit in the terminal.
