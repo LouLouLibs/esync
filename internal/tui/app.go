@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"os"
+	"os/exec"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -20,6 +23,11 @@ type SyncStatusMsg string
 
 // ResyncRequestMsg signals that the user pressed 'r' for a full resync.
 type ResyncRequestMsg struct{}
+
+// OpenFileMsg signals that the user wants to open a file in their editor.
+type OpenFileMsg struct{ Path string }
+
+type editorFinishedMsg struct{ err error }
 
 // ---------------------------------------------------------------------------
 // AppModel — root Bubbletea model
@@ -116,6 +124,20 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.resyncCh <- struct{}{}:
 		default:
 		}
+		return m, nil
+
+	case OpenFileMsg:
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			editor = "less"
+		}
+		c := exec.Command(editor, msg.Path)
+		return m, tea.ExecProcess(c, func(err error) tea.Msg {
+			return editorFinishedMsg{err}
+		})
+
+	case editorFinishedMsg:
+		// Editor exited; nothing to do on success.
 		return m, nil
 
 	case SyncEventMsg:

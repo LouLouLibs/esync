@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -46,6 +47,7 @@ type DashboardModel struct {
 	filtering     bool
 	offset        int
 	cursor        int          // index into filtered events
+	childCursor   int          // -1 = on parent row, >=0 = index into expanded Files
 	expanded      map[int]bool // keyed by index in unfiltered events slice
 }
 
@@ -57,10 +59,11 @@ type DashboardModel struct {
 // remote paths.
 func NewDashboard(local, remote string) DashboardModel {
 	return DashboardModel{
-		local:    local,
-		remote:   remote,
-		status:   "watching",
-		expanded: make(map[int]bool),
+		local:       local,
+		remote:      remote,
+		status:      "watching",
+		childCursor: -1,
+		expanded:    make(map[int]bool),
 	}
 }
 
@@ -106,6 +109,7 @@ func (m DashboardModel) Update(msg tea.Msg) (DashboardModel, tea.Cmd) {
 			newExpanded[idx+1] = v
 		}
 		m.expanded = newExpanded
+		m.childCursor = -1
 
 		// Prepend event; cap at 500.
 		m.events = append([]SyncEvent{evt}, m.events...)
@@ -138,7 +142,6 @@ func (m DashboardModel) Update(msg tea.Msg) (DashboardModel, tea.Cmd) {
 // updateNormal handles keys when NOT in filtering mode.
 func (m DashboardModel) updateNormal(msg tea.KeyMsg) (DashboardModel, tea.Cmd) {
 	filtered := m.filteredEvents()
-	maxCursor := max(0, len(filtered)-1)
 
 	switch msg.String() {
 	case "q", "ctrl+c":
@@ -152,14 +155,10 @@ func (m DashboardModel) updateNormal(msg tea.KeyMsg) (DashboardModel, tea.Cmd) {
 	case "r":
 		return m, func() tea.Msg { return ResyncRequestMsg{} }
 	case "j", "down":
-		if m.cursor < maxCursor {
-			m.cursor++
-		}
+		m.moveDown(filtered)
 		m.ensureCursorVisible()
 	case "k", "up":
-		if m.cursor > 0 {
-			m.cursor--
-		}
+		m.moveUp(filtered)
 		m.ensureCursorVisible()
 	case "enter", "right":
 		if m.cursor < len(filtered) {
@@ -168,6 +167,7 @@ func (m DashboardModel) updateNormal(msg tea.KeyMsg) (DashboardModel, tea.Cmd) {
 				idx := m.unfilteredIndex(m.cursor)
 				if idx >= 0 {
 					m.expanded[idx] = !m.expanded[idx]
+					m.childCursor = -1
 				}
 			}
 		}
@@ -176,13 +176,41 @@ func (m DashboardModel) updateNormal(msg tea.KeyMsg) (DashboardModel, tea.Cmd) {
 			idx := m.unfilteredIndex(m.cursor)
 			if idx >= 0 {
 				delete(m.expanded, idx)
+				m.childCursor = -1
 			}
 		}
+	case "v":
+		if m.cursor >= len(filtered) {
+			break
+		}
+		evt := filtered[m.cursor]
+		idx := m.unfilteredIndex(m.cursor)
+
+		// On a child file — open it
+		if m.childCursor >= 0 && m.childCursor < len(evt.Files) {
+			path := filepath.Join(m.local, evt.Files[m.childCursor])
+			return m, func() tea.Msg { return OpenFileMsg{Path: path} }
+		}
+
+		// On a parent with children — expand (same as enter)
+		if len(evt.Files) > 0 {
+			if idx >= 0 && !m.expanded[idx] {
+				m.expanded[idx] = true
+				return m, nil
+			}
+			// Already expanded but cursor on parent — do nothing
+			return m, nil
+		}
+
+		// Single-file event — open it
+		path := filepath.Join(m.local, evt.File)
+		return m, func() tea.Msg { return OpenFileMsg{Path: path} }
 	case "/":
 		m.filtering = true
 		m.filter = ""
 		m.cursor = 0
 		m.offset = 0
+		m.childCursor = -1
 	}
 	return m, nil
 }
@@ -205,6 +233,70 @@ func (m DashboardModel) updateFiltering(msg tea.KeyMsg) (DashboardModel, tea.Cmd
 		}
 	}
 	return m, nil
+}
+
+// moveDown advances cursor one visual row, entering expanded children.
+func (m *DashboardModel) moveDown(filtered []SyncEvent) {
+	if m.cursor >= len(filtered) {
+		return
+	}
+	idx := m.unfilteredIndex(m.cursor)
+	evt := filtered[m.cursor]
+
+	// Currently on parent of expanded event — enter children
+	if m.childCursor == -1 && idx >= 0 && m.expanded[idx] && len(evt.Files) > 0 {
+		m.childCursor = 0
+		return
+	}
+
+	// Currently on a child — advance within children
+	if m.childCursor >= 0 {
+		if m.childCursor < len(evt.Files)-1 {
+			m.childCursor++
+			return
+		}
+		// Past last child — move to next event
+		if m.cursor < len(filtered)-1 {
+			m.cursor++
+			m.childCursor = -1
+		}
+		return
+	}
+
+	// Normal: move to next event
+	if m.cursor < len(filtered)-1 {
+		m.cursor++
+		m.childCursor = -1
+	}
+}
+
+// moveUp moves cursor one visual row, entering expanded children from bottom.
+func (m *DashboardModel) moveUp(filtered []SyncEvent) {
+	// Currently on a child — move up within children
+	if m.childCursor > 0 {
+		m.childCursor--
+		return
+	}
+
+	// On first child — move back to parent
+	if m.childCursor == 0 {
+		m.childCursor = -1
+		return
+	}
+
+	// On a parent row — move to previous event
+	if m.cursor <= 0 {
+		return
+	}
+	m.cursor--
+	m.childCursor = -1
+
+	// If previous event is expanded, land on its last child
+	prevIdx := m.unfilteredIndex(m.cursor)
+	prevEvt := filtered[m.cursor]
+	if prevIdx >= 0 && m.expanded[prevIdx] && len(prevEvt.Files) > 0 {
+		m.childCursor = len(prevEvt.Files) - 1
+	}
 }
 
 // eventViewHeight returns the number of event rows that fit in the terminal.
@@ -247,7 +339,11 @@ func (m DashboardModel) View() string {
 		// Render expanded children
 		idx := m.unfilteredIndex(i)
 		if idx >= 0 && m.expanded[idx] && len(filtered[i].Files) > 0 {
-			children := m.renderChildren(filtered[i].Files, filtered[i].FileCount, nw)
+			focusedChild := -1
+			if i == m.cursor {
+				focusedChild = m.childCursor
+			}
+			children := m.renderChildren(filtered[i].Files, filtered[i].FileCount, nw, focusedChild)
 			for _, child := range children {
 				if linesRendered >= vh {
 					break
@@ -271,7 +367,7 @@ func (m DashboardModel) View() string {
 	if m.filtering {
 		b.WriteString(helpStyle.Render(fmt.Sprintf("  filter: %s█  (enter apply  esc clear)", m.filter)))
 	} else {
-		help := "  q quit  p pause  r resync  ↑↓ navigate  enter expand  l logs  / filter"
+		help := "  q quit  p pause  r resync  ↑↓ navigate  enter expand  v view  l logs  / filter"
 		if m.filter != "" {
 			help += fmt.Sprintf("  [filter: %s]", m.filter)
 		}
@@ -409,7 +505,12 @@ func (m *DashboardModel) ensureCursorVisible() {
 		lines++ // the event row itself
 		idx := m.unfilteredIndex(i)
 		if idx >= 0 && m.expanded[idx] {
-			lines += expandedLineCount(filtered[i])
+			if i == m.cursor && m.childCursor >= 0 {
+				// Only count up to the focused child
+				lines += m.childCursor + 1
+			} else {
+				lines += expandedLineCount(filtered[i])
+			}
 		}
 	}
 
@@ -437,14 +538,19 @@ func expandedLineCount(evt SyncEvent) int {
 
 // renderChildren renders the expanded file list for a directory group.
 // totalCount is the original number of files in the group (may exceed len(files)).
-func (m DashboardModel) renderChildren(files []string, totalCount int, nameWidth int) []string {
+// focusedChild is the index of the focused child (-1 if none).
+func (m DashboardModel) renderChildren(files []string, totalCount int, nameWidth int, focusedChild int) []string {
 	// Prefix aligns under the parent name column:
 	// marker(2) + timestamp(8) + gap(2) + icon(1) + gap(1) = 14 chars
 	prefix := strings.Repeat(" ", 14)
 	var lines []string
-	for _, f := range files {
+	for i, f := range files {
 		name := abbreviatePath(f, nameWidth-2)
-		lines = append(lines, prefix+"└ "+dimStyle.Render(name))
+		if i == focusedChild {
+			lines = append(lines, prefix+"> "+focusedStyle.Render(name))
+		} else {
+			lines = append(lines, prefix+"  "+dimStyle.Render(name))
+		}
 	}
 	if remaining := totalCount - len(files); remaining > 0 {
 		lines = append(lines, prefix+dimStyle.Render(fmt.Sprintf("  +%d more", remaining)))
