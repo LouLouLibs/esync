@@ -72,7 +72,7 @@ When both `-l` and `-r` are provided, esync runs without a config file (quick mo
 
 ### `esync init`
 
-Generate an `esync.toml` configuration file in the current directory. Inspects the project for `.gitignore` patterns and common directories (`.venv`, `build`, `__pycache__`, etc.) to auto-populate ignore rules.
+Generate an `.esync.toml` configuration file in the current directory. Inspects the project for `.gitignore` patterns and common directories (`.venv`, `build`, `__pycache__`, etc.) to auto-populate ignore rules.
 
 ```bash
 esync init                          # interactive prompt for remote
@@ -83,7 +83,7 @@ esync init -c ~/.config/esync/config.toml -r server:/data  # custom path
 | Flag       | Short | Description                        |
 |------------|-------|------------------------------------|
 | `--remote` | `-r`  | Pre-fill remote destination        |
-| `--config` | `-c`  | Output file path (default: `./esync.toml`) |
+| `--config` | `-c`  | Output file path (default: `./.esync.toml`) |
 
 ### `esync check`
 
@@ -127,7 +127,7 @@ esync status
 esync uses TOML configuration files. The config file is searched in this order:
 
 1. Path given via `-c` / `--config` flag
-2. `./esync.toml` (current directory)
+2. `./.esync.toml` (current directory)
 3. `~/.config/esync/config.toml`
 4. `/etc/esync/config.toml`
 
@@ -477,7 +477,7 @@ esync sync -l ./src -r /backup/src
 Sync to a remote server using a config file:
 
 ```toml
-# esync.toml
+# .esync.toml
 [sync]
 local  = "."
 remote = "deploy@prod.example.com:/var/www/mysite"
@@ -505,7 +505,7 @@ This uses sensible defaults: archive mode, compression, 500ms debounce, and igno
 Run in the background with structured logging:
 
 ```toml
-# esync.toml
+# .esync.toml
 [sync]
 local  = "/home/user/code"
 remote = "server:/opt/code"
@@ -529,7 +529,7 @@ esync sync --daemon -v
 Keep the remote directory in exact sync by deleting files that no longer exist locally:
 
 ```toml
-# esync.toml
+# .esync.toml
 [sync]
 local  = "./dist"
 remote = "cdn-server:/var/www/static"
