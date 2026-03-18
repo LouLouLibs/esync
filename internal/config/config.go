@@ -119,7 +119,7 @@ func Load(path string) (*Config, error) {
 func FindConfigFile() string {
 	home, _ := os.UserHomeDir()
 	candidates := []string{
-		"./esync.toml",
+		"./.esync.toml",
 		home + "/.config/esync/config.toml",
 		"/etc/esync/config.toml",
 	}

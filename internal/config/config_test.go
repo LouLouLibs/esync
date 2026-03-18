@@ -306,6 +306,27 @@ func TestFindConfigFileNotFound(t *testing.T) {
 	}
 }
 
+func TestFindConfigInPrefersDotFile(t *testing.T) {
+	dir := t.TempDir()
+	dotFile := filepath.Join(dir, ".esync.toml")
+	os.WriteFile(dotFile, []byte("[sync]\n"), 0644)
+
+	got := FindConfigIn([]string{
+		filepath.Join(dir, ".esync.toml"),
+		filepath.Join(dir, "esync.toml"),
+	})
+	if got != dotFile {
+		t.Fatalf("expected %s, got %s", dotFile, got)
+	}
+}
+
+func TestFindConfigInReturnsEmpty(t *testing.T) {
+	got := FindConfigIn([]string{"/nonexistent/path"})
+	if got != "" {
+		t.Fatalf("expected empty, got %s", got)
+	}
+}
+
 // -----------------------------------------------------------------------
 // 7. TestAllIgnorePatterns — combines both ignore lists
 // -----------------------------------------------------------------------
