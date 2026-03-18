@@ -5,6 +5,7 @@ import (
 	"os/exec"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/louloulibs/esync/internal/config"
 )
 
 // ---------------------------------------------------------------------------
@@ -29,6 +30,18 @@ type OpenFileMsg struct{ Path string }
 
 type editorFinishedMsg struct{ err error }
 
+// EditConfigMsg signals that the user wants to edit the config file.
+type EditConfigMsg struct{}
+
+// editorConfigFinishedMsg is sent when the config editor exits.
+type editorConfigFinishedMsg struct{ err error }
+
+// ConfigReloadedMsg signals that the config was reloaded with new paths.
+type ConfigReloadedMsg struct {
+	Local  string
+	Remote string
+}
+
 // ---------------------------------------------------------------------------
 // AppModel — root Bubbletea model
 // ---------------------------------------------------------------------------
@@ -41,7 +54,12 @@ type AppModel struct {
 	current    view
 	syncEvents chan SyncEvent
 	logEntries chan LogEntry
-	resyncCh   chan struct{}
+	resyncCh       chan struct{}
+	configReloadCh chan *config.Config
+
+	// Config editor state
+	configTempFile string
+	configChecksum [32]byte
 }
 
 // NewApp creates a new AppModel wired to the given local and remote paths.
@@ -52,7 +70,8 @@ func NewApp(local, remote string) *AppModel {
 		current:    viewDashboard,
 		syncEvents: make(chan SyncEvent, 64),
 		logEntries: make(chan LogEntry, 64),
-		resyncCh:   make(chan struct{}, 1),
+		resyncCh:       make(chan struct{}, 1),
+		configReloadCh: make(chan *config.Config, 1),
 	}
 }
 
@@ -71,6 +90,12 @@ func (m *AppModel) LogEntryChan() chan<- LogEntry {
 // ResyncChan returns a channel that receives when the user requests a full resync.
 func (m *AppModel) ResyncChan() <-chan struct{} {
 	return m.resyncCh
+}
+
+// ConfigReloadChan returns a channel that receives a new config when the user
+// edits and saves the config file from the TUI.
+func (m *AppModel) ConfigReloadChan() <-chan *config.Config {
+	return m.configReloadCh
 }
 
 // ---------------------------------------------------------------------------
@@ -204,4 +229,25 @@ func (m AppModel) listenLogEntries() tea.Cmd {
 	return func() tea.Msg {
 		return LogEntryMsg(<-ch)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// resolveEditor returns the user's preferred editor: $VISUAL, $EDITOR, or "vi".
+func resolveEditor() string {
+	if e := os.Getenv("VISUAL"); e != "" {
+		return e
+	}
+	if e := os.Getenv("EDITOR"); e != "" {
+		return e
+	}
+	return "vi"
+}
+
+// updatePaths updates the local and remote paths displayed in the dashboard.
+func (m *AppModel) updatePaths(local, remote string) {
+	m.dashboard.local = local
+	m.dashboard.remote = remote
 }
