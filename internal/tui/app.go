@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"crypto/sha256"
 	"os"
 	"os/exec"
 
@@ -163,6 +164,104 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case editorFinishedMsg:
 		// Editor exited; nothing to do on success.
+		return m, nil
+
+	case EditConfigMsg:
+		configPath := ".esync.toml"
+		var targetPath string
+
+		if _, err := os.Stat(configPath); err == nil {
+			// Existing file: checksum and edit in place
+			data, err := os.ReadFile(configPath)
+			if err != nil {
+				return m, nil
+			}
+			m.configChecksum = sha256.Sum256(data)
+			m.configTempFile = ""
+			targetPath = configPath
+		} else {
+			// New file: write template to temp file
+			tmpFile, err := os.CreateTemp("", "esync-*.toml")
+			if err != nil {
+				return m, nil
+			}
+			tmpl := config.EditTemplateTOML()
+			tmpFile.WriteString(tmpl)
+			tmpFile.Close()
+			m.configChecksum = sha256.Sum256([]byte(tmpl))
+			m.configTempFile = tmpFile.Name()
+			targetPath = tmpFile.Name()
+		}
+
+		editor := resolveEditor()
+		c := exec.Command(editor, targetPath)
+		return m, tea.ExecProcess(c, func(err error) tea.Msg {
+			return editorConfigFinishedMsg{err}
+		})
+
+	case editorConfigFinishedMsg:
+		if msg.err != nil {
+			// Editor exited with error — discard
+			if m.configTempFile != "" {
+				os.Remove(m.configTempFile)
+				m.configTempFile = ""
+			}
+			return m, nil
+		}
+
+		configPath := ".esync.toml"
+		editedPath := configPath
+		if m.configTempFile != "" {
+			editedPath = m.configTempFile
+		}
+
+		data, err := os.ReadFile(editedPath)
+		if err != nil {
+			if m.configTempFile != "" {
+				os.Remove(m.configTempFile)
+				m.configTempFile = ""
+			}
+			return m, nil
+		}
+
+		newChecksum := sha256.Sum256(data)
+		if newChecksum == m.configChecksum {
+			// No changes
+			if m.configTempFile != "" {
+				os.Remove(m.configTempFile)
+				m.configTempFile = ""
+			}
+			return m, nil
+		}
+
+		// Changed — if temp, persist to .esync.toml
+		if m.configTempFile != "" {
+			if err := os.WriteFile(configPath, data, 0644); err != nil {
+				m.dashboard.status = "error: could not write " + configPath
+				os.Remove(m.configTempFile)
+				m.configTempFile = ""
+				return m, nil
+			}
+			os.Remove(m.configTempFile)
+			m.configTempFile = ""
+		}
+
+		// Parse the new config
+		cfg, err := config.Load(configPath)
+		if err != nil {
+			m.dashboard.status = "config error: " + err.Error()
+			return m, nil
+		}
+
+		// Send to reload channel (non-blocking)
+		select {
+		case m.configReloadCh <- cfg:
+		default:
+		}
+		return m, nil
+
+	case ConfigReloadedMsg:
+		m.updatePaths(msg.Local, msg.Remote)
 		return m, nil
 
 	case SyncEventMsg:
