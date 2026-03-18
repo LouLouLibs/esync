@@ -49,8 +49,8 @@ var initRemote string
 
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Generate an esync.toml configuration file",
-	Long:  "Inspect the current directory to generate a smart esync.toml with .gitignore import and common directory exclusion.",
+	Short: "Generate an .esync.toml configuration file",
+	Long:  "Inspect the current directory to generate a smart .esync.toml with .gitignore import and common directory exclusion.",
 	RunE:  runInit,
 }
 
@@ -67,7 +67,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// 1. Determine output path
 	outPath := cfgFile
 	if outPath == "" {
-		outPath = "./esync.toml"
+		outPath = "./.esync.toml"
 	}
 
 	// 2. If file exists, prompt for overwrite confirmation
