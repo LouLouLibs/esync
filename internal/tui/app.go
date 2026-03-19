@@ -32,7 +32,8 @@ type OpenFileMsg struct{ Path string }
 type editorFinishedMsg struct{ err error }
 
 // EditConfigMsg signals that the user wants to edit the config file.
-type EditConfigMsg struct{}
+// Visual selects $VISUAL (GUI editor) instead of $EDITOR (terminal editor).
+type EditConfigMsg struct{ Visual bool }
 
 // editorConfigFinishedMsg is sent when the config editor exits.
 type editorConfigFinishedMsg struct{ err error }
@@ -197,7 +198,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			targetPath = tmpFile.Name()
 		}
 
-		editor := resolveEditor()
+		editor := resolveEditor(msg.Visual)
 		c := exec.Command(editor, targetPath)
 		return m, tea.ExecProcess(c, func(err error) tea.Msg {
 			return editorConfigFinishedMsg{err}
@@ -338,10 +339,14 @@ func (m AppModel) listenLogEntries() tea.Cmd {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// resolveEditor returns the user's preferred editor: $VISUAL, $EDITOR, or "vi".
-func resolveEditor() string {
-	if e := os.Getenv("VISUAL"); e != "" {
-		return e
+// resolveEditor returns the user's preferred editor.
+// When visual is true it checks $VISUAL first (GUI editor like BBEdit);
+// otherwise it uses $EDITOR (terminal editor like Helix), falling back to "vi".
+func resolveEditor(visual bool) string {
+	if visual {
+		if e := os.Getenv("VISUAL"); e != "" {
+			return e
+		}
 	}
 	if e := os.Getenv("EDITOR"); e != "" {
 		return e
