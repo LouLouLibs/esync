@@ -207,6 +207,8 @@ func (m DashboardModel) updateNormal(msg tea.KeyMsg) (DashboardModel, tea.Cmd) {
 		return m, func() tea.Msg { return OpenFileMsg{Path: path} }
 	case "e":
 		return m, func() tea.Msg { return EditConfigMsg{} }
+	case "E":
+		return m, func() tea.Msg { return EditConfigMsg{Visual: true} }
 	case "/":
 		m.filtering = true
 		m.filter = ""
@@ -376,7 +378,7 @@ func (m DashboardModel) View() string {
 			helpKey("↑↓") + helpDesc("navigate") +
 			helpKey("enter") + helpDesc("expand") +
 			helpKey("v") + helpDesc("view") +
-			helpKey("e") + helpDesc("config") +
+			helpKey("e/E") + helpDesc("config") +
 			helpKey("l") + helpDesc("logs") +
 			helpKey("/") + helpDesc("filter")
 		if m.filter != "" {
