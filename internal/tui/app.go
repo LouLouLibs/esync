@@ -186,7 +186,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			tmpl := config.EditTemplateTOML()
-			tmpFile.WriteString(tmpl)
+			if _, err := tmpFile.WriteString(tmpl); err != nil {
+				tmpFile.Close()
+				os.Remove(tmpFile.Name())
+				return m, nil
+			}
 			tmpFile.Close()
 			m.configChecksum = sha256.Sum256([]byte(tmpl))
 			m.configTempFile = tmpFile.Name()

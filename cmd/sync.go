@@ -336,6 +336,11 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 				Local:  newCfg.Sync.Local,
 				Remote: newCfg.Sync.Remote,
 			})
+
+			select {
+			case syncCh <- tui.SyncEvent{Status: "status:watching"}:
+			default:
+			}
 		}
 	}()
 
