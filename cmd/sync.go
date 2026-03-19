@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -160,17 +161,26 @@ func runSync(cmd *cobra.Command, args []string) error {
 // TUI mode
 // ---------------------------------------------------------------------------
 
-func runTUI(cfg *config.Config, s *syncer.Syncer) error {
+// watchState holds the watcher and syncer that can be torn down and rebuilt.
+type watchState struct {
+	watcher  *watcher.Watcher
+	cancel   context.CancelFunc
+	inflight sync.WaitGroup
+}
+
+// startWatching creates a syncer, watcher, and sync handler from the given config.
+func startWatching(cfg *config.Config, syncCh chan<- tui.SyncEvent, logCh chan<- tui.LogEntry) (*watchState, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
-	app := tui.NewApp(cfg.Sync.Local, cfg.Sync.Remote)
-	syncCh := app.SyncEventChan()
+	s := syncer.New(cfg)
+	s.DryRun = dryRun
 
-	logCh := app.LogEntryChan()
+	ws := &watchState{cancel: cancel}
 
 	handler := func() {
-		// Update header status to syncing
+		ws.inflight.Add(1)
+		defer ws.inflight.Done()
+
 		syncCh <- tui.SyncEvent{Status: "status:syncing"}
 
 		var lastPct string
@@ -179,12 +189,10 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 			if trimmed == "" {
 				return
 			}
-			// Stream to log view
 			select {
 			case logCh <- tui.LogEntry{Time: time.Now(), Level: "INF", Message: trimmed}:
 			default:
 			}
-			// Parse progress2 percentage and update header
 			if m := reProgress2.FindStringSubmatch(trimmed); len(m) > 1 {
 				pct := m[1]
 				if pct != lastPct {
@@ -210,13 +218,8 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 			return
 		}
 
-		// Group files by top-level directory
 		groups := groupFilesByTopLevel(result.Files)
 
-		// Per-file sizes from --progress are unreliable with --info=progress2
-		// (fast transfers may skip the 100% line), so when per-file sizes
-		// are missing, distribute the rsync --stats total across groups
-		// weighted by file count.
 		totalGroupBytes := int64(0)
 		totalGroupFiles := 0
 		for _, g := range groups {
@@ -242,7 +245,6 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 			}
 		}
 
-		// Fallback: rsync ran but no individual files parsed
 		if len(groups) == 0 && result.FilesCount > 0 {
 			syncCh <- tui.SyncEvent{
 				File:     fmt.Sprintf("%d files", result.FilesCount),
@@ -253,7 +255,6 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 			}
 		}
 
-		// Reset header status
 		syncCh <- tui.SyncEvent{Status: "status:watching"}
 	}
 
@@ -265,27 +266,98 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 		handler,
 	)
 	if err != nil {
-		return fmt.Errorf("creating watcher: %w", err)
+		cancel()
+		return nil, fmt.Errorf("creating watcher: %w", err)
 	}
 
 	if err := w.Start(); err != nil {
-		return fmt.Errorf("starting watcher: %w", err)
+		cancel()
+		return nil, fmt.Errorf("starting watcher: %w", err)
 	}
 
+	ws.watcher = w
+	return ws, nil
+}
+
+func runTUI(cfg *config.Config, s *syncer.Syncer) error {
+	app := tui.NewApp(cfg.Sync.Local, cfg.Sync.Remote)
+	syncCh := app.SyncEventChan()
+	logCh := app.LogEntryChan()
+
+	ws, err := startWatching(cfg, syncCh, logCh)
+	if err != nil {
+		return err
+	}
+
+	var wsMu sync.Mutex
+
+	// Handle resync requests
 	resyncCh := app.ResyncChan()
 	go func() {
 		for range resyncCh {
-			handler()
+			wsMu.Lock()
+			w := ws
+			wsMu.Unlock()
+			w.watcher.TriggerSync()
 		}
 	}()
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
+
+	// Handle config reload
+	configCh := app.ConfigReloadChan()
+	go func() {
+		for newCfg := range configCh {
+			wsMu.Lock()
+			oldWs := ws
+			wsMu.Unlock()
+
+			// Tear down: stop watcher, wait for in-flight syncs
+			oldWs.watcher.Stop()
+			oldWs.inflight.Wait()
+			oldWs.cancel()
+
+			// Rebuild with new config
+			newWs, err := startWatching(newCfg, syncCh, logCh)
+			if err != nil {
+				select {
+				case syncCh <- tui.SyncEvent{Status: "status:error"}:
+				default:
+				}
+				continue
+			}
+
+			wsMu.Lock()
+			ws = newWs
+			wsMu.Unlock()
+
+			// Update paths via Bubbletea message (safe — goes through Update loop)
+			p.Send(tui.ConfigReloadedMsg{
+				Local:  newCfg.Sync.Local,
+				Remote: newCfg.Sync.Remote,
+			})
+
+			select {
+			case syncCh <- tui.SyncEvent{Status: "status:watching"}:
+			default:
+			}
+		}
+	}()
+
 	if _, err := p.Run(); err != nil {
-		w.Stop()
+		wsMu.Lock()
+		w := ws
+		wsMu.Unlock()
+		w.watcher.Stop()
+		w.cancel()
 		return fmt.Errorf("TUI error: %w", err)
 	}
 
-	w.Stop()
+	wsMu.Lock()
+	w := ws
+	wsMu.Unlock()
+	w.watcher.Stop()
+	w.cancel()
 	return nil
 }
 

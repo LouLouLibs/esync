@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"crypto/sha256"
 	"os"
 	"os/exec"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/louloulibs/esync/internal/config"
 )
 
 // ---------------------------------------------------------------------------
@@ -29,6 +31,18 @@ type OpenFileMsg struct{ Path string }
 
 type editorFinishedMsg struct{ err error }
 
+// EditConfigMsg signals that the user wants to edit the config file.
+type EditConfigMsg struct{}
+
+// editorConfigFinishedMsg is sent when the config editor exits.
+type editorConfigFinishedMsg struct{ err error }
+
+// ConfigReloadedMsg signals that the config was reloaded with new paths.
+type ConfigReloadedMsg struct {
+	Local  string
+	Remote string
+}
+
 // ---------------------------------------------------------------------------
 // AppModel — root Bubbletea model
 // ---------------------------------------------------------------------------
@@ -41,7 +55,12 @@ type AppModel struct {
 	current    view
 	syncEvents chan SyncEvent
 	logEntries chan LogEntry
-	resyncCh   chan struct{}
+	resyncCh       chan struct{}
+	configReloadCh chan *config.Config
+
+	// Config editor state
+	configTempFile string
+	configChecksum [32]byte
 }
 
 // NewApp creates a new AppModel wired to the given local and remote paths.
@@ -52,7 +71,8 @@ func NewApp(local, remote string) *AppModel {
 		current:    viewDashboard,
 		syncEvents: make(chan SyncEvent, 64),
 		logEntries: make(chan LogEntry, 64),
-		resyncCh:   make(chan struct{}, 1),
+		resyncCh:       make(chan struct{}, 1),
+		configReloadCh: make(chan *config.Config, 1),
 	}
 }
 
@@ -71,6 +91,12 @@ func (m *AppModel) LogEntryChan() chan<- LogEntry {
 // ResyncChan returns a channel that receives when the user requests a full resync.
 func (m *AppModel) ResyncChan() <-chan struct{} {
 	return m.resyncCh
+}
+
+// ConfigReloadChan returns a channel that receives a new config when the user
+// edits and saves the config file from the TUI.
+func (m *AppModel) ConfigReloadChan() <-chan *config.Config {
+	return m.configReloadCh
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +166,108 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Editor exited; nothing to do on success.
 		return m, nil
 
+	case EditConfigMsg:
+		configPath := ".esync.toml"
+		var targetPath string
+
+		if _, err := os.Stat(configPath); err == nil {
+			// Existing file: checksum and edit in place
+			data, err := os.ReadFile(configPath)
+			if err != nil {
+				return m, nil
+			}
+			m.configChecksum = sha256.Sum256(data)
+			m.configTempFile = ""
+			targetPath = configPath
+		} else {
+			// New file: write template to temp file
+			tmpFile, err := os.CreateTemp("", "esync-*.toml")
+			if err != nil {
+				return m, nil
+			}
+			tmpl := config.EditTemplateTOML()
+			if _, err := tmpFile.WriteString(tmpl); err != nil {
+				tmpFile.Close()
+				os.Remove(tmpFile.Name())
+				return m, nil
+			}
+			tmpFile.Close()
+			m.configChecksum = sha256.Sum256([]byte(tmpl))
+			m.configTempFile = tmpFile.Name()
+			targetPath = tmpFile.Name()
+		}
+
+		editor := resolveEditor()
+		c := exec.Command(editor, targetPath)
+		return m, tea.ExecProcess(c, func(err error) tea.Msg {
+			return editorConfigFinishedMsg{err}
+		})
+
+	case editorConfigFinishedMsg:
+		if msg.err != nil {
+			// Editor exited with error — discard
+			if m.configTempFile != "" {
+				os.Remove(m.configTempFile)
+				m.configTempFile = ""
+			}
+			return m, nil
+		}
+
+		configPath := ".esync.toml"
+		editedPath := configPath
+		if m.configTempFile != "" {
+			editedPath = m.configTempFile
+		}
+
+		data, err := os.ReadFile(editedPath)
+		if err != nil {
+			if m.configTempFile != "" {
+				os.Remove(m.configTempFile)
+				m.configTempFile = ""
+			}
+			return m, nil
+		}
+
+		newChecksum := sha256.Sum256(data)
+		if newChecksum == m.configChecksum {
+			// No changes
+			if m.configTempFile != "" {
+				os.Remove(m.configTempFile)
+				m.configTempFile = ""
+			}
+			return m, nil
+		}
+
+		// Changed — if temp, persist to .esync.toml
+		if m.configTempFile != "" {
+			if err := os.WriteFile(configPath, data, 0644); err != nil {
+				m.dashboard.status = "error: could not write " + configPath
+				os.Remove(m.configTempFile)
+				m.configTempFile = ""
+				return m, nil
+			}
+			os.Remove(m.configTempFile)
+			m.configTempFile = ""
+		}
+
+		// Parse the new config
+		cfg, err := config.Load(configPath)
+		if err != nil {
+			m.dashboard.status = "config error: " + err.Error()
+			return m, nil
+		}
+
+		// Send to reload channel (non-blocking)
+		select {
+		case m.configReloadCh <- cfg:
+		default:
+		}
+		return m, nil
+
+	case ConfigReloadedMsg:
+		m.updatePaths(msg.Local, msg.Remote)
+		return m, nil
+
 	case SyncEventMsg:
 		// Dispatch to dashboard and re-listen.
 		var cmd tea.Cmd
@@ -204,4 +332,25 @@ func (m AppModel) listenLogEntries() tea.Cmd {
 	return func() tea.Msg {
 		return LogEntryMsg(<-ch)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// resolveEditor returns the user's preferred editor: $VISUAL, $EDITOR, or "vi".
+func resolveEditor() string {
+	if e := os.Getenv("VISUAL"); e != "" {
+		return e
+	}
+	if e := os.Getenv("EDITOR"); e != "" {
+		return e
+	}
+	return "vi"
+}
+
+// updatePaths updates the local and remote paths displayed in the dashboard.
+func (m *AppModel) updatePaths(local, remote string) {
+	m.dashboard.local = local
+	m.dashboard.remote = remote
 }

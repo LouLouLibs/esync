@@ -3,7 +3,10 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/spf13/viper"
 )
 
 // --- Helper: write a TOML string to a temp file and return its path ---
@@ -306,6 +309,27 @@ func TestFindConfigFileNotFound(t *testing.T) {
 	}
 }
 
+func TestFindConfigInPrefersDotFile(t *testing.T) {
+	dir := t.TempDir()
+	dotFile := filepath.Join(dir, ".esync.toml")
+	os.WriteFile(dotFile, []byte("[sync]\n"), 0644)
+
+	got := FindConfigIn([]string{
+		filepath.Join(dir, ".esync.toml"),
+		filepath.Join(dir, "esync.toml"),
+	})
+	if got != dotFile {
+		t.Fatalf("expected %s, got %s", dotFile, got)
+	}
+}
+
+func TestFindConfigInReturnsEmpty(t *testing.T) {
+	got := FindConfigIn([]string{"/nonexistent/path"})
+	if got != "" {
+		t.Fatalf("expected empty, got %s", got)
+	}
+}
+
 // -----------------------------------------------------------------------
 // 7. TestAllIgnorePatterns — combines both ignore lists
 // -----------------------------------------------------------------------
@@ -406,6 +430,27 @@ func TestDefaultTOML(t *testing.T) {
 	// Should document include field
 	if !containsString(toml, "include") {
 		t.Error("DefaultTOML() missing include field")
+	}
+}
+
+// -----------------------------------------------------------------------
+// 11. TestEditTemplateTOMLIsValidTOML — returns valid TOML with required fields
+// -----------------------------------------------------------------------
+func TestEditTemplateTOMLIsValidTOML(t *testing.T) {
+	content := EditTemplateTOML()
+	if content == "" {
+		t.Fatal("EditTemplateTOML returned empty string")
+	}
+	if !strings.Contains(content, `local = "."`) {
+		t.Fatal("missing local field")
+	}
+	if !strings.Contains(content, `remote = "user@host:/path/to/dest"`) {
+		t.Fatal("missing remote field")
+	}
+	v := viper.New()
+	v.SetConfigType("toml")
+	if err := v.ReadConfig(strings.NewReader(content)); err != nil {
+		t.Fatalf("EditTemplateTOML is not valid TOML: %v", err)
 	}
 }
 

@@ -36,7 +36,7 @@ Show
 # ── Demo ──────────────────────────────────────────────────────────────────
 
 # 1. Show the config
-Type "bat esync.toml"
+Type "bat .esync.toml"
 Enter
 Sleep 4s
 

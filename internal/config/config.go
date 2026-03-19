@@ -119,7 +119,7 @@ func Load(path string) (*Config, error) {
 func FindConfigFile() string {
 	home, _ := os.UserHomeDir()
 	candidates := []string{
-		"./esync.toml",
+		"./.esync.toml",
 		home + "/.config/esync/config.toml",
 		"/etc/esync/config.toml",
 	}
@@ -178,6 +178,41 @@ func (c *Config) AllIgnorePatterns() []string {
 // ---------------------------------------------------------------------------
 // DefaultTOML
 // ---------------------------------------------------------------------------
+
+// EditTemplateTOML returns a minimal commented TOML template used by the
+// TUI "e" key when no .esync.toml exists. Unlike DefaultTOML (used by
+// esync init), most fields are commented out.
+func EditTemplateTOML() string {
+	return `# esync configuration
+# Docs: https://github.com/LouLouLibs/esync
+
+[sync]
+local = "."
+remote = "user@host:/path/to/dest"
+# interval = 1  # seconds between syncs
+
+# [sync.ssh]
+# key = "~/.ssh/id_ed25519"
+# port = 22
+
+[settings]
+# watcher_debounce = 500   # ms
+# initial_sync = false
+# include = ["src/", "cmd/"]
+# ignore = [".git", "*.tmp"]
+
+# [settings.rsync]
+# archive = true
+# compress = true
+# delete = false
+# copy_links = false
+# extra_args = ["--exclude=.DS_Store"]
+
+# [settings.log]
+# file = "esync.log"
+# format = "text"
+`
+}
 
 // DefaultTOML returns a commented TOML template suitable for writing to a
 // new configuration file.

@@ -148,6 +148,17 @@ func (w *Watcher) Stop() {
 	<-w.done
 }
 
+// TriggerSync immediately invokes the sync handler (bypasses debounce).
+// Safe to call after Stop — checks the stopped flag before invoking.
+func (w *Watcher) TriggerSync() {
+	w.debouncer.mu.Lock()
+	stopped := w.debouncer.stopped
+	w.debouncer.mu.Unlock()
+	if !stopped {
+		w.debouncer.callback()
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Private methods
 // ---------------------------------------------------------------------------
