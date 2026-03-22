@@ -195,3 +195,33 @@ func TestFindBrokenSymlinks(t *testing.T) {
 		t.Errorf("path base = %q, want %q", filepath.Base(broken[0].Path), "bad.txt")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 8. TestAddRecursiveSkipsBrokenSymlinks — watcher starts despite broken symlinks
+// ---------------------------------------------------------------------------
+func TestAddRecursiveSkipsBrokenSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "subdir")
+	os.Mkdir(sub, 0755)
+
+	// Create a broken symlink inside subdir
+	os.Symlink("/nonexistent/target", filepath.Join(sub, "broken.csv"))
+
+	w, err := New(dir, 100, nil, nil, func() {})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer w.Stop()
+
+	// Start should succeed despite broken symlinks
+	if err := w.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	if len(w.BrokenSymlinks) != 1 {
+		t.Fatalf("BrokenSymlinks = %d, want 1", len(w.BrokenSymlinks))
+	}
+	if w.BrokenSymlinks[0].Target != "/nonexistent/target" {
+		t.Errorf("target = %q, want %q", w.BrokenSymlinks[0].Target, "/nonexistent/target")
+	}
+}

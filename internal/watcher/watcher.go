@@ -124,13 +124,14 @@ func (d *Debouncer) Stop() {
 // Events are debounced so that a burst of rapid changes results in a single
 // call to the configured handler.
 type Watcher struct {
-	fsw       *fsnotify.Watcher
-	debouncer *Debouncer
-	path      string
-	rootPath  string
-	ignores   []string
-	includes  []string
-	done      chan struct{}
+	fsw            *fsnotify.Watcher
+	debouncer      *Debouncer
+	path           string
+	rootPath       string
+	ignores        []string
+	includes       []string
+	done           chan struct{}
+	BrokenSymlinks []BrokenSymlink
 }
 
 // New creates a Watcher for the given directory path. debounceMs sets the
@@ -318,7 +319,13 @@ func (w *Watcher) addRecursive(path string) error {
 		}
 
 		if info.IsDir() {
-			return w.fsw.Add(p)
+			if err := w.fsw.Add(p); err != nil {
+				if broken := findBrokenSymlinks(p); len(broken) > 0 {
+					w.BrokenSymlinks = append(w.BrokenSymlinks, broken...)
+					return nil // skip dir, continue walking
+				}
+				return err // non-symlink error, propagate
+			}
 		}
 
 		return nil
