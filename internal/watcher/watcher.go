@@ -13,6 +13,43 @@ import (
 )
 
 // ---------------------------------------------------------------------------
+// BrokenSymlink
+// ---------------------------------------------------------------------------
+
+// BrokenSymlink records a symlink whose target does not exist.
+type BrokenSymlink struct {
+	Path   string // absolute path to the symlink
+	Target string // what the symlink points to
+}
+
+// findBrokenSymlinks scans a directory for symlinks whose targets do not exist.
+func findBrokenSymlinks(dir string) []BrokenSymlink {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var broken []BrokenSymlink
+	for _, e := range entries {
+		if e.Type()&os.ModeSymlink == 0 {
+			continue
+		}
+		full := filepath.Join(dir, e.Name())
+		target, err := os.Readlink(full)
+		if err != nil {
+			continue
+		}
+		// Resolve relative targets against the directory
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(dir, target)
+		}
+		if _, err := os.Stat(target); err != nil {
+			broken = append(broken, BrokenSymlink{Path: full, Target: target})
+		}
+	}
+	return broken
+}
+
+// ---------------------------------------------------------------------------
 // EventHandler
 // ---------------------------------------------------------------------------
 

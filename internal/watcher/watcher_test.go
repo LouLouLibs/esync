@@ -1,6 +1,8 @@
 package watcher
 
 import (
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -163,5 +165,33 @@ func TestShouldIncludeEmptyMeansAll(t *testing.T) {
 		if got != tt.expect {
 			t.Errorf("shouldInclude(%q) = %v, want %v", tt.path, got, tt.expect)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 7. TestFindBrokenSymlinks — detects broken symlinks in a directory
+// ---------------------------------------------------------------------------
+func TestFindBrokenSymlinks(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a valid file
+	os.WriteFile(filepath.Join(dir, "good.txt"), []byte("ok"), 0644)
+
+	// Create a broken symlink
+	os.Symlink("/nonexistent/target", filepath.Join(dir, "bad.txt"))
+
+	// Create a valid symlink
+	os.Symlink(filepath.Join(dir, "good.txt"), filepath.Join(dir, "also-good.txt"))
+
+	broken := findBrokenSymlinks(dir)
+
+	if len(broken) != 1 {
+		t.Fatalf("findBrokenSymlinks found %d, want 1", len(broken))
+	}
+	if broken[0].Target != "/nonexistent/target" {
+		t.Errorf("target = %q, want %q", broken[0].Target, "/nonexistent/target")
+	}
+	if filepath.Base(broken[0].Path) != "bad.txt" {
+		t.Errorf("path base = %q, want %q", filepath.Base(broken[0].Path), "bad.txt")
 	}
 }
