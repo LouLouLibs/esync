@@ -310,6 +310,7 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 		return err
 	}
 	reportBrokenSymlinks(ws.watcher.BrokenSymlinks, logCh)
+	app.SetWarnings(len(ws.watcher.BrokenSymlinks))
 
 	var wsMu sync.Mutex
 

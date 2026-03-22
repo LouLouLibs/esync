@@ -42,6 +42,7 @@ type DashboardModel struct {
 	events        []SyncEvent
 	totalSynced   int
 	totalErrors   int
+	totalWarnings int
 	width, height int
 	filter        string
 	filtering     bool
@@ -364,7 +365,10 @@ func (m DashboardModel) View() string {
 
 	// --- Stats (2 lines) ---
 	b.WriteString("  " + titleStyle.Render("Stats") + " " + dimStyle.Render(strings.Repeat("─", max(0, m.width-10))) + "\n")
-	stats := fmt.Sprintf("  %d events │ %d errors", m.totalSynced, m.totalErrors)
+	stats := fmt.Sprintf("  %d syncs │ %d errors", m.totalSynced, m.totalErrors)
+	if m.totalWarnings > 0 {
+		stats += fmt.Sprintf(" │ %d warnings", m.totalWarnings)
+	}
 	b.WriteString(stats + "\n")
 
 	// --- Help (1 line) ---

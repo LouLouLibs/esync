@@ -100,6 +100,12 @@ func (m *AppModel) ConfigReloadChan() <-chan *config.Config {
 	return m.configReloadCh
 }
 
+// SetWarnings sets the warning count shown in the dashboard stats bar.
+// Call before Run() — no concurrency protection needed.
+func (m *AppModel) SetWarnings(n int) {
+	m.dashboard.totalWarnings = n
+}
+
 // ---------------------------------------------------------------------------
 // tea.Model interface
 // ---------------------------------------------------------------------------
