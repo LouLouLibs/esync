@@ -19,6 +19,7 @@ import (
 var (
 	greenHeader  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
 	yellowHeader = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
+	redHeader    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("9"))
 	dimText      = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
@@ -87,6 +88,7 @@ func printPreview(cfg *config.Config) error {
 
 	var included []fileEntry
 	var excluded []fileEntry
+	var brokenLinks []fileEntry
 	var includedSize int64
 
 	err := filepath.Walk(localDir, func(path string, info os.FileInfo, err error) error {
@@ -102,6 +104,15 @@ func printPreview(cfg *config.Config) error {
 		// Skip the root directory itself
 		if rel == "." {
 			return nil
+		}
+
+		// Detect broken symlinks (Walk uses Lstat, so symlinks show up with err==nil)
+		if info.Mode()&os.ModeSymlink != 0 {
+			if _, statErr := os.Stat(path); statErr != nil {
+				target, _ := os.Readlink(path)
+				brokenLinks = append(brokenLinks, fileEntry{path: rel, rule: target})
+			}
+			return nil // skip all symlinks from included/excluded lists
 		}
 
 		// Check against ignore patterns
@@ -167,6 +178,15 @@ func printPreview(cfg *config.Config) error {
 		fmt.Println("    (none)")
 	}
 	fmt.Println()
+
+	// --- Broken symlinks ---
+	if len(brokenLinks) > 0 {
+		fmt.Println(redHeader.Render("  Broken symlinks:"))
+		for _, f := range brokenLinks {
+			fmt.Printf("    %-40s %s\n", f.path, dimText.Render("-> "+f.rule))
+		}
+		fmt.Println()
+	}
 
 	// --- Totals ---
 	totals := fmt.Sprintf("  %d files included (%s) | %d excluded",
