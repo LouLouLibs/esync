@@ -279,6 +279,27 @@ func startWatching(cfg *config.Config, syncCh chan<- tui.SyncEvent, logCh chan<-
 	return ws, nil
 }
 
+// reportBrokenSymlinks sends prominent warnings about broken symlinks
+// to the TUI log channel.
+func reportBrokenSymlinks(broken []watcher.BrokenSymlink, logCh chan<- tui.LogEntry) {
+	if len(broken) == 0 {
+		return
+	}
+	now := time.Now()
+	logCh <- tui.LogEntry{
+		Time:    now,
+		Level:   "WRN",
+		Message: fmt.Sprintf("Found %d broken symlink(s) — directories containing them are not watched:", len(broken)),
+	}
+	for _, b := range broken {
+		logCh <- tui.LogEntry{
+			Time:    now,
+			Level:   "WRN",
+			Message: fmt.Sprintf("  %s -> %s", b.Path, b.Target),
+		}
+	}
+}
+
 func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 	app := tui.NewApp(cfg.Sync.Local, cfg.Sync.Remote)
 	syncCh := app.SyncEventChan()
@@ -288,6 +309,7 @@ func runTUI(cfg *config.Config, s *syncer.Syncer) error {
 	if err != nil {
 		return err
 	}
+	reportBrokenSymlinks(ws.watcher.BrokenSymlinks, logCh)
 
 	var wsMu sync.Mutex
 
@@ -441,6 +463,13 @@ func runDaemon(cfg *config.Config, s *syncer.Syncer) error {
 		return fmt.Errorf("starting watcher: %w", err)
 	}
 	defer w.Stop()
+
+	if len(w.BrokenSymlinks) > 0 {
+		fmt.Fprintf(os.Stderr, "Warning: %d broken symlink(s) found — directories containing them are not watched:\n", len(w.BrokenSymlinks))
+		for _, b := range w.BrokenSymlinks {
+			fmt.Fprintf(os.Stderr, "  %s -> %s\n", b.Path, b.Target)
+		}
+	}
 
 	// Block until SIGINT or SIGTERM
 	sigCh := make(chan os.Signal, 1)
