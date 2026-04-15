@@ -418,6 +418,61 @@ func TestBuildCommand_IncludeFiles(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// 11. TestBuildCommand_ExcludesBeforeIncludes — regression for issue #14
+//
+// rsync filter rules are first-match-wins. When `include` is set, any
+// `--exclude=` from the ignore list MUST be emitted before the `--include=`
+// subtree rules, otherwise a wildcard include like `worktree/**` shadows
+// the exclude and lets ignored files through.
+// ---------------------------------------------------------------------------
+func TestBuildCommand_ExcludesBeforeIncludes(t *testing.T) {
+	cfg := minimalConfig("/src", "/dst")
+	cfg.Settings.Include = []string{"worktree/"}
+	cfg.Settings.Ignore = []string{".venv/", "**/.venv/"}
+
+	s := New(cfg)
+	cmd := s.BuildCommand()
+
+	firstInclude := -1
+	lastIgnoreExclude := -1
+	catchAll := -1
+	for i, a := range cmd {
+		if strings.HasPrefix(a, "--include=") && firstInclude < 0 {
+			firstInclude = i
+		}
+		if a == "--exclude=.venv/" {
+			lastIgnoreExclude = i
+		}
+		if a == "--exclude=*" {
+			catchAll = i
+		}
+	}
+
+	if firstInclude < 0 {
+		t.Fatalf("no --include argument found in %v", cmd)
+	}
+	if lastIgnoreExclude < 0 {
+		t.Fatalf("no --exclude=.venv/ argument found in %v", cmd)
+	}
+	if catchAll < 0 {
+		t.Fatalf("no --exclude=* catch-all found in %v", cmd)
+	}
+
+	if lastIgnoreExclude > firstInclude {
+		t.Errorf("ignore excludes must come BEFORE includes (rsync is first-match-wins).\n"+
+			"  --exclude=.venv/ at index %d\n"+
+			"  first --include=   at index %d\n"+
+			"  args: %v",
+			lastIgnoreExclude, firstInclude, cmd)
+	}
+
+	// Sanity: catch-all still at the end.
+	if catchAll < firstInclude {
+		t.Errorf("--exclude=* catch-all must stay after --include= rules; catchAll=%d firstInclude=%d", catchAll, firstInclude)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
