@@ -224,4 +224,7 @@ func TestAddRecursiveSkipsBrokenSymlinks(t *testing.T) {
 	if w.BrokenSymlinks[0].Target != "/nonexistent/target" {
 		t.Errorf("target = %q, want %q", w.BrokenSymlinks[0].Target, "/nonexistent/target")
 	}
+	if filepath.Base(w.BrokenSymlinks[0].Path) != "broken.csv" {
+		t.Errorf("path base = %q, want %q", filepath.Base(w.BrokenSymlinks[0].Path), "broken.csv")
+	}
 }
