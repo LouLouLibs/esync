@@ -319,9 +319,16 @@ func (w *Watcher) addRecursive(path string) error {
 		}
 
 		if info.IsDir() {
+			// Scan for broken symlinks proactively on every directory.
+			// fsnotify.Add behavior differs across platforms — macOS
+			// kqueue fails to watch a directory containing broken
+			// symlinks, while Linux inotify accepts it silently — so
+			// we cannot rely on the Add error to decide when to scan.
+			broken := findBrokenSymlinks(p)
+			w.BrokenSymlinks = append(w.BrokenSymlinks, broken...)
+
 			if err := w.fsw.Add(p); err != nil {
-				if broken := findBrokenSymlinks(p); len(broken) > 0 {
-					w.BrokenSymlinks = append(w.BrokenSymlinks, broken...)
+				if len(broken) > 0 {
 					return nil // skip dir, continue walking
 				}
 				return err // non-symlink error, propagate
