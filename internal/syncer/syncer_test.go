@@ -473,6 +473,56 @@ func TestBuildCommand_ExcludesBeforeIncludes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// 12. TestBuildCommand_DedupExcludes — issue #17: duplicate ignore patterns
+// that normalize to the same rsync pattern must emit only one --exclude=.
+// ---------------------------------------------------------------------------
+func TestBuildCommand_DedupExcludes(t *testing.T) {
+	cfg := minimalConfig("/src", "/dst")
+	// Both of these normalize to `.venv/` after stripping the `**/` prefix.
+	cfg.Settings.Ignore = []string{".venv/", "**/.venv/", "node_modules", "**/node_modules"}
+
+	s := New(cfg)
+	cmd := s.BuildCommand()
+
+	// Count occurrences of each --exclude= arg.
+	counts := map[string]int{}
+	for _, a := range cmd {
+		if strings.HasPrefix(a, "--exclude=") {
+			counts[a]++
+		}
+	}
+
+	for _, want := range []string{"--exclude=.venv/", "--exclude=node_modules"} {
+		if counts[want] != 1 {
+			t.Errorf("expected exactly one %q, got %d\nargs: %v", want, counts[want], cmd)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 13. TestBuildCommand_DedupExcludes_WithInclude — same behavior in the
+// include-set branch of BuildCommand.
+// ---------------------------------------------------------------------------
+func TestBuildCommand_DedupExcludes_WithInclude(t *testing.T) {
+	cfg := minimalConfig("/src", "/dst")
+	cfg.Settings.Include = []string{"src/"}
+	cfg.Settings.Ignore = []string{".venv/", "**/.venv/"}
+
+	s := New(cfg)
+	cmd := s.BuildCommand()
+
+	count := 0
+	for _, a := range cmd {
+		if a == "--exclude=.venv/" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected exactly one --exclude=.venv/, got %d\nargs: %v", count, cmd)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 

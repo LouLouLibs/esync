@@ -119,6 +119,22 @@ func compareVersions(a, b string) int {
 	return len(pa) - len(pb)
 }
 
+// appendExcludes appends one --exclude= arg per ignore pattern, deduped
+// after stripping the optional **/ prefix. rsync treats identical patterns
+// as redundant, so the dedup is about log clarity, not correctness (issue #17).
+func appendExcludes(args []string, patterns []string) []string {
+	seen := make(map[string]bool, len(patterns))
+	for _, pattern := range patterns {
+		cleaned := strings.TrimPrefix(pattern, "**/")
+		if seen[cleaned] {
+			continue
+		}
+		seen[cleaned] = true
+		args = append(args, "--exclude="+cleaned)
+	}
+	return args
+}
+
 // BuildCommand constructs the rsync argument list with all flags, excludes,
 // SSH options, extra_args, source (trailing /), and destination.
 func (s *Syncer) BuildCommand() []string {
@@ -162,10 +178,7 @@ func (s *Syncer) BuildCommand() []string {
 	// ignored files through (issue #14).
 	if len(s.cfg.Settings.Include) > 0 {
 		// 1. Ignore excludes first — take precedence over includes.
-		for _, pattern := range s.cfg.AllIgnorePatterns() {
-			cleaned := strings.TrimPrefix(pattern, "**/")
-			args = append(args, "--exclude="+cleaned)
-		}
+		args = appendExcludes(args, s.cfg.AllIgnorePatterns())
 
 		// 2. Include rules: ancestor dirs + prefix + subtree for each entry.
 		seen := make(map[string]bool)
@@ -188,10 +201,7 @@ func (s *Syncer) BuildCommand() []string {
 		args = append(args, "--exclude=*")
 	} else {
 		// No include filter — just emit excludes.
-		for _, pattern := range s.cfg.AllIgnorePatterns() {
-			cleaned := strings.TrimPrefix(pattern, "**/")
-			args = append(args, "--exclude="+cleaned)
-		}
+		args = appendExcludes(args, s.cfg.AllIgnorePatterns())
 	}
 
 	// Extra args passthrough
