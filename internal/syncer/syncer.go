@@ -154,13 +154,23 @@ func (s *Syncer) BuildCommand() []string {
 		args = append(args, "--dry-run")
 	}
 
-	// Include/exclude filter rules
+	// Include/exclude filter rules.
+	//
+	// rsync filter rules are first-match-wins, so ignore --exclude rules
+	// MUST be emitted before --include rules. Otherwise a wildcard include
+	// like --include=worktree/** shadows a later --exclude=.venv/ and lets
+	// ignored files through (issue #14).
 	if len(s.cfg.Settings.Include) > 0 {
-		// Emit include rules: ancestor dirs + subtree for each prefix
+		// 1. Ignore excludes first — take precedence over includes.
+		for _, pattern := range s.cfg.AllIgnorePatterns() {
+			cleaned := strings.TrimPrefix(pattern, "**/")
+			args = append(args, "--exclude="+cleaned)
+		}
+
+		// 2. Include rules: ancestor dirs + prefix + subtree for each entry.
 		seen := make(map[string]bool)
 		for _, inc := range s.cfg.Settings.Include {
 			inc = filepath.Clean(inc)
-			// Add ancestor directories (e.g. "docs/api" needs "docs/")
 			parts := strings.Split(inc, string(filepath.Separator))
 			for i := 1; i < len(parts); i++ {
 				ancestor := strings.Join(parts[:i], "/") + "/"
@@ -169,22 +179,15 @@ func (s *Syncer) BuildCommand() []string {
 					seen[ancestor] = true
 				}
 			}
-			// Include as both file and directory (we don't know which it is)
 			args = append(args, "--include="+inc)
 			args = append(args, "--include="+inc+"/")
 			args = append(args, "--include="+inc+"/**")
 		}
 
-		// Exclude patterns from ignore lists (applied within included paths)
-		for _, pattern := range s.cfg.AllIgnorePatterns() {
-			cleaned := strings.TrimPrefix(pattern, "**/")
-			args = append(args, "--exclude="+cleaned)
-		}
-
-		// Catch-all exclude: block everything not explicitly included
+		// 3. Catch-all exclude: block everything not explicitly included.
 		args = append(args, "--exclude=*")
 	} else {
-		// No include filter — just exclude patterns as before
+		// No include filter — just emit excludes.
 		for _, pattern := range s.cfg.AllIgnorePatterns() {
 			cleaned := strings.TrimPrefix(pattern, "**/")
 			args = append(args, "--exclude="+cleaned)
