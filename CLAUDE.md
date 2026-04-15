@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+## Workflow
+- **Branch per issue.** Every change lives on its own feature branch tied to a GitHub issue; do not commit directly to `main`.
+- Branch naming: `fix/<issue-number>-<slug>` or `feat/<issue-number>-<slug>` (e.g. `fix/14-filter-ordering`).
+- Open a PR against `main` when the branch is ready; reference the issue so it auto-closes on merge.
+- If there is no tracking issue for the work, open one first.
+
 ## Build & Test
 - `go build ./...` — build all packages
 - `go test ./...` — run all tests
