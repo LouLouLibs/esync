@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,5 +147,83 @@ func TestWatcherTriggersSync(t *testing.T) {
 	}
 	if string(got) != testContent {
 		t.Errorf("synced file content mismatch:\n  got:  %q\n  want: %q", string(got), testContent)
+	}
+}
+
+// TestIssue14IgnoreHonoredUnderInclude reproduces issue #14: when `include`
+// contains a directory prefix and `ignore` lists a path that lives inside
+// that prefix, `sync` must NOT transfer the ignored path (matching what
+// `check` reports).
+//
+// Uses rsync --dry-run so it does not actually copy bytes; parses rsync's
+// transfer list for the ignored path.
+func TestIssue14IgnoreHonoredUnderInclude(t *testing.T) {
+	if _, err := os.Stat("/opt/homebrew/bin/rsync"); err != nil {
+		if _, err := os.Stat("/usr/local/bin/rsync"); err != nil {
+			t.Skip("homebrew rsync 3.1+ not found, skipping integration test")
+		}
+	}
+
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	// Build the fixture tree:
+	//   src/worktree/env/.venv/big.bin     (should NOT be transferred)
+	//   src/worktree/env/keep.txt          (should be transferred)
+	venvDir := filepath.Join(src, "worktree", "env", ".venv")
+	if err := os.MkdirAll(venvDir, 0755); err != nil {
+		t.Fatalf("mkdir venv: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(venvDir, "big.bin"), []byte("should be ignored"), 0644); err != nil {
+		t.Fatalf("write big.bin: %v", err)
+	}
+	keepPath := filepath.Join(src, "worktree", "env", "keep.txt")
+	if err := os.WriteFile(keepPath, []byte("should be synced"), 0644); err != nil {
+		t.Fatalf("write keep.txt: %v", err)
+	}
+
+	cfg := &config.Config{
+		Sync: config.SyncSection{
+			Local:  src,
+			Remote: dst,
+		},
+		Settings: config.Settings{
+			Include: []string{"worktree/"},
+			Ignore:  []string{".venv/", "**/.venv/"},
+			Rsync: config.RsyncSettings{
+				Archive:  true,
+				Progress: true,
+			},
+		},
+	}
+
+	s := syncer.New(cfg)
+	s.DryRun = true
+
+	result, err := s.Run()
+	if err != nil {
+		t.Fatalf("syncer.Run(): %v\n%s", err, result.ErrorMessage)
+	}
+	if !result.Success {
+		t.Fatalf("syncer did not succeed: %s", result.ErrorMessage)
+	}
+
+	// The .venv/ subtree must not appear in the transferred file list.
+	for _, f := range result.Files {
+		if strings.Contains(f.Name, ".venv") {
+			t.Errorf("issue #14 regression: .venv path appeared in transfer list: %q\nall files: %v", f.Name, result.Files)
+		}
+	}
+
+	// Sanity: keep.txt must appear (otherwise the filter over-excluded).
+	foundKeep := false
+	for _, f := range result.Files {
+		if strings.HasSuffix(f.Name, "keep.txt") {
+			foundKeep = true
+			break
+		}
+	}
+	if !foundKeep {
+		t.Errorf("worktree/env/keep.txt was filtered out by mistake; files: %v", result.Files)
 	}
 }
