@@ -12,15 +12,21 @@ import (
 	"github.com/louloulibs/esync/internal/watcher"
 )
 
+// requireRsync skips the test unless a usable rsync (matching what
+// syncer.rsyncBin selects and what syncer.CheckRsync validates) is
+// available. Using CheckRsync as the source of truth keeps the
+// skip-guard logic aligned with the production binary-selection path.
+func requireRsync(t *testing.T) {
+	t.Helper()
+	if _, err := syncer.CheckRsync(); err != nil {
+		t.Skipf("rsync unavailable: %v", err)
+	}
+}
+
 // TestLocalSyncIntegration verifies that the Syncer can rsync files between
 // two local directories. This test requires rsync to be installed.
 func TestLocalSyncIntegration(t *testing.T) {
-	// Ensure rsync is available
-	if _, err := os.Stat("/usr/bin/rsync"); err != nil {
-		if _, err2 := os.Stat("/opt/homebrew/bin/rsync"); err2 != nil {
-			t.Skip("rsync not found, skipping integration test")
-		}
-	}
+	requireRsync(t)
 
 	// 1. Create two temp dirs (src, dst)
 	src := t.TempDir()
@@ -73,12 +79,7 @@ func TestLocalSyncIntegration(t *testing.T) {
 // TestWatcherTriggersSync verifies that the watcher detects a new file and
 // triggers a sync from src to dst. This test requires rsync to be installed.
 func TestWatcherTriggersSync(t *testing.T) {
-	// Ensure rsync is available
-	if _, err := os.Stat("/usr/bin/rsync"); err != nil {
-		if _, err2 := os.Stat("/opt/homebrew/bin/rsync"); err2 != nil {
-			t.Skip("rsync not found, skipping integration test")
-		}
-	}
+	requireRsync(t)
 
 	// 1. Create two temp dirs (src, dst)
 	src := t.TempDir()
@@ -158,11 +159,7 @@ func TestWatcherTriggersSync(t *testing.T) {
 // Uses rsync --dry-run so it does not actually copy bytes; parses rsync's
 // transfer list for the ignored path.
 func TestIssue14IgnoreHonoredUnderInclude(t *testing.T) {
-	if _, err := os.Stat("/opt/homebrew/bin/rsync"); err != nil {
-		if _, err := os.Stat("/usr/local/bin/rsync"); err != nil {
-			t.Skip("homebrew rsync 3.1+ not found, skipping integration test")
-		}
-	}
+	requireRsync(t)
 
 	src := t.TempDir()
 	dst := t.TempDir()
